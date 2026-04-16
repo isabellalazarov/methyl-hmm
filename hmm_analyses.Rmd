@@ -1,0 +1,97 @@
+---
+title: "Final Project"
+author: "Amrita Acharya"
+date: "2026-04-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import data and libraries
+
+```{r}
+library(tidyverse)
+library(GenomicRanges)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+```
+
+```{r}
+# readr can read in .gz files, so this line can stay
+rna_seq <- read_csv("exports/rna_seq_merged.csv")
+wgbs <- read_csv("exports/wgbs_merged.csv")
+
+hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+```
+
+```{r}
+head(rna_seq)
+```
+
+```{r}
+head(wgbs)
+```
+
+```{r}
+hg38_txdb
+```
+
+
+# Extract promoter regions
+
+## WGBS
+
+```{r}
+wgbs_gr <- GRanges(seqnames = wgbs$chrom,
+        ranges = IRanges(start = wgbs$start, end = wgbs$end),
+        strand = wgbs$strand,
+        accession = wgbs$accession,
+        methylation_percent = wgbs$methylation_percent)
+
+head(wgbs_gr)
+```
+
+```{r, warning=FALSE}
+promoter_regions <- promoters(genes(hg38_txdb, single.strand.genes.only=FALSE), upstream=2000, downstream=400)
+```
+
+```{r}
+wgbs$in_promoter <- overlapsAny(wgbs_gr, promoter_regions, ignore.strand = TRUE)
+```
+
+```{r}
+wgbs_filtered <- wgbs %>%
+    filter(in_promoter == TRUE) %>%
+    dplyr::select(-c(in_promoter))
+
+dim(wgbs_filtered)  # so 4482 of 100000 sites remain, which seems reasonable (CpGs enriched in promoters, but they're not as common overall in the genome)
+```
+
+```{r}
+head(wgbs_filtered)  # so now we have only CpGs that are in promoters
+```
+
+## RNA-seq
+
+```{r}
+suppressMessages(
+    hg38_genes <- genes(hg38_txdb)
+)
+rna_seq_ranges <- hg38_genes[hg38_genes$gene_id %in% rna_seq$gene_id]
+
+head(rna_seq_ranges)
+```
+
+```{r}
+rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
+```
+
+
+## Garbage collection
+
+```{r}
+rm(rna_seq, wgbs, )
+gc()
+```
+
