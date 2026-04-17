@@ -11,15 +11,19 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Import data and libraries
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(GenomicRanges)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+select <- dplyr::select
 ```
 
 ```{r}
 # readr can read in .gz files, so this line can stay
-rna_seq <- read_csv("exports/rna_seq_merged.csv")
+rna_seq <- read_csv("exports/rna_seq_merged.csv.gz")
 wgbs <- read_csv("exports/wgbs_merged.csv")
 
 hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
@@ -33,8 +37,54 @@ head(rna_seq)
 head(wgbs)
 ```
 
+# Standardize RNA-seq IDs
+
 ```{r}
-hg38_txdb
+id_type_counts <- rna_seq %>%
+  mutate(
+    id_raw = as.character(gene_id),
+    id_no_ver = sub("\\..*$", "", id_raw),
+    id_type = case_when(
+      str_detect(id_no_ver, "^ENSG[0-9]+$") ~ "ensembl_gene",
+      str_detect(id_no_ver, "^[0-9]+$") ~ "entrez_numeric",
+      TRUE ~ "other"
+    )
+  ) %>%
+  count(id_type, sort = TRUE)
+
+id_type_counts
+```
+
+```{r}
+rna_std <- rna_seq %>%
+  mutate(
+    gene_id_raw = as.character(gene_id),
+    gene_id_no_ver = sub("\\..*$", "", gene_id_raw),
+    id_type = case_when(
+      str_detect(gene_id_no_ver, "^ENSG[0-9]+$") ~ "ensembl_gene",
+      str_detect(gene_id_no_ver, "^[0-9]+$") ~ "entrez_numeric",
+      str_detect(gene_id_no_ver, "^ENST[0-9]+$") ~ "ensembl_transcript",
+      TRUE ~ "other"
+    )
+  )
+
+ensg_keys <- unique(rna_std$gene_id_no_ver[rna_std$id_type == "ensembl_gene"])
+ensg_to_entrez <- AnnotationDbi::mapIds(
+  org.Hs.eg.db,
+  keys = ensg_keys,
+  keytype = "ENSEMBL",
+  column = "ENTREZID",
+  multiVals = "first"
+)
+
+rna_std <- rna_std %>%
+  mutate(
+    gene_id_entrez = case_when(
+      id_type == "entrez_numeric" ~ gene_id_no_ver,
+      id_type == "ensembl_gene" ~ as.character(ensg_to_entrez[gene_id_no_ver]),
+      TRUE ~ NA_character_
+    )
+  )
 ```
 
 
@@ -63,7 +113,7 @@ wgbs$in_promoter <- overlapsAny(wgbs_gr, promoter_regions, ignore.strand = TRUE)
 ```{r}
 wgbs_filtered <- wgbs %>%
     filter(in_promoter == TRUE) %>%
-    dplyr::select(-c(in_promoter))
+    select(-c(in_promoter))
 
 dim(wgbs_filtered)  # so 4482 of 100000 sites remain, which seems reasonable (CpGs enriched in promoters, but they're not as common overall in the genome)
 ```
@@ -75,23 +125,78 @@ head(wgbs_filtered)  # so now we have only CpGs that are in promoters
 ## RNA-seq
 
 ```{r}
-suppressMessages(
-    hg38_genes <- genes(hg38_txdb)
-)
-rna_seq_ranges <- hg38_genes[hg38_genes$gene_id %in% rna_seq$gene_id]
+hg38_genes <- genes(hg38_txdb)
+rna_seq_ranges <- hg38_genes[hg38_genes$gene_id %in%
+                unique(na.omit(rna_std$gene_id_entrez))]
 
 head(rna_seq_ranges)
 ```
 
 ```{r}
 rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
+
+length(rna_seq_promoters)  # so 25160 genes
+```
+
+```{r}
+wgbs_filtered_gr <- GRanges(seqnames = wgbs_filtered$chrom,
+        ranges = IRanges(start = wgbs_filtered$start, end = wgbs_filtered$end),
+        strand = wgbs_filtered$strand,
+        accession = wgbs_filtered$accession,
+        methylation_percent = wgbs_filtered$methylation_percent)
+
+hits <- findOverlaps(rna_seq_promoters, wgbs_filtered_gr, ignore.strand = TRUE)
+length(hits)
+```
+
+```{r}
+wgbs_df <- data.frame(
+    wgbs_accession = mcols(wgbs_filtered_gr)$accession[subjectHits(hits)],
+    gene_id_entrez = mcols(rna_seq_promoters)$gene_id[queryHits(hits)],
+    chrom = seqnames(wgbs_filtered_gr)[subjectHits(hits)],
+    start = start(wgbs_filtered_gr)[subjectHits(hits)],
+    end = end(wgbs_filtered_gr)[subjectHits(hits)],
+    strand = strand(wgbs_filtered_gr)[subjectHits(hits)],
+    methylation_percent = 
+        mcols(wgbs_filtered_gr)$methylation_percent[subjectHits(hits)]
+)
+
+rna_std <- rna_std %>%
+    filter(!is.na(gene_id_entrez))
+
+merged_df <- inner_join(wgbs_df, rna_std, by = c("gene_id_entrez"))
+
+merged_df <- merged_df %>%
+    select(-c("gene_id", "gene_id_raw", "gene_id_no_ver", "id_type")) %>%
+    group_by(gene_id_entrez, chrom, start, end) %>%
+    summarize(
+        mean_methylation = mean(methylation_percent),
+        mean_expression = mean(expected_count)
+    )
+```
+
+```{r}
+head(merged_df)
 ```
 
 
 ## Garbage collection
 
 ```{r}
-rm(rna_seq, wgbs, )
+# remove unused objects to save on memory
+rm(rna_seq, wgbs, id_type_counts, rna_std, ensg_keys, ensg_to_entrez, hg38_genes, promoter_regions, hits, rna_seq_promoters, rna_seq_ranges, wgbs_df, wgbs_filtered, wgbs_filtered_gr, wgbs_gr, hg38_txdb)
 gc()
+```
+
+## Save to file (for easy loading)
+
+```{r}
+write_csv(merged_df, "exports/merged_final.csv")
+```
+
+# Analyses
+
+```{r}
+merged_df <- read_csv("exports/merged_final.csv")
 ```
 

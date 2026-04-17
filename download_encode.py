@@ -169,6 +169,8 @@ def merge_wgbs_to_csv(records, download_dir, output_csv, max_files=None, max_row
                     if max_rows is not None and merged_rows >= max_rows:
                         break
 
+            merged_files += 1
+
             if max_rows is not None and merged_rows >= max_rows:
                 break
 
@@ -242,6 +244,8 @@ def merge_rnaseq_to_csv(records, download_dir, output_csv, max_files=None, max_r
                     if max_rows is not None and merged_rows >= max_rows:
                         break
 
+            merged_files += 1
+
             if max_rows is not None and merged_rows >= max_rows:
                 break
 
@@ -295,7 +299,7 @@ print("Wrote manifest CSV files to exports/")
 
 
 # uncomment values to produce the test files
-MERGE_MAX_FILES = None  # 1
+MERGE_MAX_FILES = 5  # None  # 1
 MERGE_MAX_ROWS = None  # 100000
 
 
@@ -311,14 +315,14 @@ merge_wgbs_to_csv(
     zip=True
 )
 
-merge_rnaseq_to_csv(
-    rna_seq_records,
-    "downloads/rna_seq",
-    "exports/rna_seq_merged.csv.gz",
-    max_files=MERGE_MAX_FILES,
-    max_rows=MERGE_MAX_ROWS,
-    zip=True
-)
+# merge_rnaseq_to_csv(
+#     rna_seq_records,
+#     "downloads/rna_seq",
+#     "exports/rna_seq_merged.csv.gz",
+#     max_files=MERGE_MAX_FILES,
+#     max_rows=MERGE_MAX_ROWS,
+#     zip=True
+# )
 
 '''
 Results:
