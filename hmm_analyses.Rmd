@@ -1,6 +1,6 @@
 ---
 title: "Final Project"
-author: "Amrita Acharya"
+author: "Amrita Acharya & Isabella Lazarov"
 date: "2026-04-15"
 output: pdf_document
 ---
@@ -17,14 +17,23 @@ library(GenomicRanges)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(AnnotationDbi)
 library(org.Hs.eg.db)
+library(glmnet)
+library(depmixS4)
+library(here)
+source(here("fit_hmm.R"))
 
 select <- dplyr::select
 ```
 
 ```{r}
 # readr can read in .gz files, so this line can stay
-rna_seq <- read_csv("exports/rna_seq_merged.csv.gz")
-wgbs <- read_csv("exports/wgbs_merged.csv")
+rna_seq <- read_csv("exports/rna_seq_merged.csv")
+wgbs <- read_tsv("exports/wgbs_k562_cpg.bed.gz",
+                  col_names = c("chrom", "start", "end", "name", "score",
+                               "strand", "thickStart", "thickEnd", "rgb",
+                               "coverage", "methylation_percent")) %>%
+  select(chrom, start, end, strand, methylation_percent) %>%
+  mutate(accession = "ENCSR765JPC")
 
 hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 ```
@@ -199,4 +208,141 @@ write_csv(merged_df, "exports/merged_final.csv")
 ```{r}
 merged_df <- read_csv("exports/merged_final.csv")
 ```
+```{r}
+##################
+# LASSO analysis #
+##################
 
+# for glmnet format: one row per gene, one column per CpG site
+merged_wide <- pivot_wider(
+  ungroup(
+    mutate(
+      group_by(merged_df, gene_id_entrez),
+      cpg_index = paste0("cpg_", row_number())
+    )
+  ),
+  id_cols = c(gene_id_entrez, mean_expression),
+  names_from = cpg_index,
+  values_from = mean_methylation,
+  values_fill = 0
+)
+
+X <- as.matrix(select(merged_wide, starts_with("cpg_")))
+Y <- merged_wide$mean_expression
+
+set.seed(123)
+k <- 10
+foldid <- sample(rep(1:k, length.out = nrow(merged_wide)))
+
+cv_fit <- cv.glmnet(
+  x = X,
+  y = Y,
+  family = "gaussian",
+  alpha = 1,
+  foldid = foldid,
+  standardize = TRUE
+)
+
+best_lambda = cv_fit$lambda.min
+
+plot(cv_fit)
+
+predicted <- predict(cv_fit, newx = X, s = "lambda.min")
+lasso_r_squared <- cor(Y, predicted)^2
+paste("r^2 value = ", lasso_r_squared)
+
+```
+
+```{r}
+###############################
+# Correlation analysis + plot #
+###############################
+# averaging all methylation values of a single gene to determine if there is
+# a simple correlation between methylation and gene expression 
+
+# average methylation per gene
+gene_summary <- summarize(
+  group_by(merged_df, gene_id_entrez),
+  avg_methylation = mean(mean_methylation),
+  avg_expression = mean(mean_expression)
+  )
+
+# correlation using all genes including those w/o expression 
+# some may be silent due to reasons other than methylation
+cor_all <- cor(gene_summary$avg_methylation, gene_summary$avg_expression)
+paste("correlation (all genes) = ", cor_all)
+
+# correlation using only genes with expression > 0
+gene_summary_expressed <- filter(gene_summary, avg_expression > 0)
+cor_expressed <- cor(gene_summary_expressed$avg_methylation, 
+     gene_summary_expressed$avg_expression)
+paste("correlation (expressed genes only) = ", cor_expressed)
+
+ggplot(gene_summary_expressed,
+       aes(x = avg_methylation, y = log1p(avg_expression))) + 
+  geom_point(alpha = 0.3, size = 0.5) +
+  labs(x = "Average Promoter Methylation (%)",
+       y = "Log Gene Expression/Log(Expected Count + 1)",
+       title = "Promoter Methylation vs Gene Expression (Expressed Genes Only)")
+
+```
+
+```{r}
+################
+# HMM Analysis #
+################
+
+# sort CpG sites by position in genome so that they can be modeled as sequence
+hmm_data <- arrange(merged_df, gene_id_entrez, start)
+
+# log-transform gene expression values
+hmm_data$log_expression <- log1p(hmm_data$mean_expression)
+
+# one row per gene
+gene_ids <- unique(hmm_data$gene_id_entrez)
+
+# 80% train, 20% test
+train_ids <- sample(length(gene_ids), size = floor(0.8*length(gene_ids)))
+train_genes <- gene_ids[train_ids]
+test_genes <- gene_ids[-train_ids]
+
+state_exp <- data.frame()
+
+for (gene in train_genes) {
+  result <- fit_hmm(gene, hmm_data, nstates = 3)
+  if(!is.null(result)) 
+    state_exp <- rbind(state_exp, result)
+}
+
+# fit linear regression model to learn if state fraction can predict gene exp
+train_lm <- lm(log_expression ~ prop_state1, data = state_exp)
+summary(train_lm)
+
+# predict test gene expression
+test_pred <- data.frame()
+for (gene in test_genes) {
+  result <- fit_hmm(gene, hmm_data, nstates = 3)
+  if (is.null(result))
+    next
+  
+  pred_exp <- predict(train_lm,
+                      newdata = data.frame(prop_state1 = result$prop_state1,
+                                           prop_state2 = result$prop_state2))
+  test_pred <- rbind(test_pred, data.frame(actual = result$log_expression,
+                                           pred = pred_exp))
+}
+  
+hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
+
+```
+```{r}
+################
+# final values #
+################
+cat("R for simple correlation:",
+    "\n\t all genes = ", cor_all, 
+    "\n\t expressed genes only = ", cor_expressed,
+    "\nR^2 for LASSO = ", lasso_r_squared,
+    "\nR^2 for HMM = ", hmm_r_squared)
+
+```

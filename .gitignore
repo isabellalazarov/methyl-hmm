@@ -1,3 +1,7 @@
 downloads/
 
 __pycache__/
+.Rproj.user
+exports/wgbs_k562_cpg.bed.gz
+exports/merged_final.csv
+exports/wgbs_k562_cpg.bed.gz
