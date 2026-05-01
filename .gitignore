@@ -7,3 +7,9 @@ exports/merged_final.csv
 exports/wgbs_k562_cpg.bed.gz
 exports/wgbs_k562_cpg.bed.gz
 exports/merged_final.csv
+.positai
+data/
+exports/
+.DS_Store
+.Rhistory
+.RData
