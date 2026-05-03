@@ -1,11 +1,17 @@
-fit_hmm <- function(gene, hmm_data, num_states) {
+fit_hmm_per_gene <- function(gene, hmm_data, num_states, sample_ids = NULL) {
   num_states <- as.integer(num_states)
   if (length(num_states) != 1 || is.na(num_states) || num_states < 2) {
     stop("nstates must be a single integer >= 2")
   }
 
   gene_data <- hmm_data[hmm_data$gene_id_entrez == gene, ]
-  gene_data <- gene_data[order(gene_data$start), ]
+  #gene_data <- gene_data[order(gene_data$start), ]
+  
+  if (!is.null(sample_ids)) {
+    gene_data <- gene_data[gene_data$sample_id %in% sample_ids, ]
+  }
+  
+  gene_data <- gene_data[order(gene_data$sample_id, gene_data$start), ]
   
   # at least 10 CpG sites for better model fit
   if (nrow(gene_data) < 10)
@@ -15,15 +21,22 @@ fit_hmm <- function(gene, hmm_data, num_states) {
   gene_data$beta_logit <- qlogis(pmin(pmax(gene_data$beta, 1e-4), 1 - 1e-4))  # logit transform betas to gaussian, avoid issues with 0 and 1
   gene_data <- gene_data[complete.cases(gene_data[, c("beta_logit", "log_expression")]), ]  # remove missing values
 
-  if (nrow(gene_data) < 10)
+  if (nrow(gene_data) < 10) {
     return(NULL)
+  }
+  
+  sample_sequences <- pull(summarize(group_by(gene_data, sample_id), n = n(), .groups = "drop"), n)
+  
+  if (length(sample_sequences) < 10) {
+    return(NULL)
+  }
 
   hmm_model <- depmix(
     list(beta_logit ~ 1, log_expression ~ beta_logit),
     data = gene_data,
     nstates = num_states,
     family = list(gaussian(), gaussian()),
-    ntimes = nrow(gene_data))
+    ntimes = sample_sequnces)
   
   # baum-welch
   fit_model <- tryCatch(
@@ -71,8 +84,13 @@ fit_hmm <- function(gene, hmm_data, num_states) {
     left_join(state_order_map, by = "state") %>%
     mutate(state = ordered_state) %>%
     select(-ordered_state)
-
+  
+  gene_data$state <- post$state
+  gene_data <- select(mutate(left_join(gene_data, state_order_map, by = "state"), state = ordered_state), -ordered_state)
   state_params$gene_id_entrez <- gene
-  state_params$log_expression <- gene_data$log_expression[1]
-  state_params
+  
+  list(
+    gene_data = gene_data,
+    state_params = state_params
+  )
 }

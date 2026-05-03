@@ -24,7 +24,7 @@ library(org.Hs.eg.db)
 library(glmnet)
 library(depmixS4)
 library(here)
-source(here("fit_hmm.R"))
+source(here("fit_hmm_per_gene.R"))
 source(here("fit_lasso_per_gene.R"))
 
 select <- dplyr::select
@@ -212,10 +212,8 @@ cpgs_per_gene <- summarize(group_by(merged_df, gene_id_entrez), n_cpgs = n_disti
 
 target_genes <- cpgs_per_gene %>%
   arrange(desc(n_cpgs)) %>%
-  slice_head(n = 500) %>%
+  slice_head(n = 200) %>%
   pull(gene_id_entrez)
-
-length(target_genes)
 
 lasso_result <- NULL
 lasso_result <- data.frame()
@@ -301,92 +299,99 @@ ggplot(gene_summary_expressed,
 # HMM Analysis # 
 ################
 
+# same genes as LASSO analysis for reliable comparison
+hmm_target_genes <- lasso_result$gene_id_entrez
+
 # sort CpG sites by position in genome so that they can be modeled as sequence
-hmm_data <- arrange(merged_df, gene_id_entrez, start)
+hmm_data <- arrange(merged_df, gene_id_entrez, sample_id, start)
 
 # log-transform gene expression values
 hmm_data$log_expression <- log1p(hmm_data$expression)
 
-# use a variable for states
-num_states <- 3
-
-# one row per gene
-gene_ids <- unique(hmm_data$gene_id_entrez)
-# subset for testing
-# gene_ids <- gene_ids[1:100]
-
-# 80% train, 20% test
-train_ids <- sample(length(gene_ids), size = floor(0.8*length(gene_ids)))
-train_genes <- gene_ids[train_ids]
-test_genes <- gene_ids[-train_ids]
-
-# train hmm
-state_exp <- data.frame()
-source(here("fit_hmm.R"))
-i <- 0
-for (gene in train_genes) {
-  i <- i + 1
-  if (gene %in% state_exp$gene_id_entrez) {
-      print(paste0("[", i, "/", length(train_genes), "] ", "Skipping ", gene))
-      next
+hmm_result <- NULL
+hmm_result <- data.frame()
+all_hmm_fits <- list()
+for (gene in hmm_target_genes) {
+  result <- fit_hmm_per_gene(gene, hmm_data)
+  if (!is.null(result)) {
+    hmm_result <- bind_rows(hmm_result, result$summary)
+    all_hmm_fits[[as.character(gene)]] <- result$lm_fit
   }
-  print(paste0("[", i, "/", length(train_genes), "] ", "Processing ", gene))
-  result <- fit_hmm(gene, hmm_data, num_states = num_states)
-  if(!is.null(result)) 
-    state_exp <- rbind(state_exp, result)
 }
 
-# summarize state-specific regression coefficients to gene level
-train_state_summary <- state_exp %>%
-  group_by(gene_id_entrez) %>%
-  summarize(
-    log_expression = dplyr::first(log_expression),
-    weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
-    weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
-    weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
-    dominant_state = state[which.max(state_prop)][1],
-    .groups = "drop"
-  )
+hmm_result
 
-train_lm <- lm(log_expression ~ weighted_expr_intercept + weighted_expr_slope,
-               data = train_state_summary)
-summary(train_lm)
+paste0("Percentage of genes with R^2 > 0.3 = ", mean(hmm_result$r_squared > 0.3, na.rm = TRUE)*100)
+paste0("Percentage of genes with R^2 > 0.5 = ", mean(hmm_result$r_squared > 0.5, na.rm = TRUE)*100)
+paste0("Percentage of genes with R^2 > 0.8 = ", mean(hmm_result$r_squared > 0.8, na.rm = TRUE)*100)
 
-# predict test gene expression
-test_pred <- data.frame()
-test_state_exp <- data.frame()
-i <- 0
-for (gene in test_genes) {
-  i <- i + 1
-  if (gene %in% test_state_exp$gene_id_entrez) {
-      print(paste0("[", i, "/", length(test_genes), "] ", "Skipping ", gene))
-      next
-  }
-  print(paste0("[", i, "/", length(test_genes), "] ", "Processing ", gene))
-
-  result <- fit_hmm(gene, hmm_data, num_states = num_states)
-  if (is.null(result))
-    next
-  
-  test_state_exp <- rbind(test_state_exp, result)
-}
-
-test_state_summary <- test_state_exp %>%
-  group_by(gene_id_entrez) %>%
-  summarize(
-    log_expression = dplyr::first(log_expression),
-    weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
-    weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
-    weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
-    dominant_state = state[which.max(state_prop)][1],
-    .groups = "drop"
-  )
-
-pred_exp <- predict(train_lm, newdata = test_state_summary)
-test_pred <- data.frame(actual = test_state_summary$log_expression,
-                        pred = pred_exp)
-  
-hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
+# # train hmm
+# state_exp <- data.frame()
+# source(here("fit_hmm.R"))
+# i <- 0
+# for (gene in train_genes) {
+#   i <- i + 1
+#   if (gene %in% state_exp$gene_id_entrez) {
+#       print(paste0("[", i, "/", length(train_genes), "] ", "Skipping ", gene))
+#       next
+#   }
+#   print(paste0("[", i, "/", length(train_genes), "] ", "Processing ", gene))
+#   result <- fit_hmm(gene, hmm_data, num_states = num_states)
+#   if(!is.null(result)) 
+#     state_exp <- rbind(state_exp, result)
+# }
+# 
+# # summarize state-specific regression coefficients to gene level
+# train_state_summary <- state_exp %>%
+#   group_by(gene_id_entrez) %>%
+#   summarize(
+#     log_expression = dplyr::first(log_expression),
+#     weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
+#     weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
+#     weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
+#     dominant_state = state[which.max(state_prop)][1],
+#     .groups = "drop"
+#   )
+# 
+# train_lm <- lm(log_expression ~ weighted_expr_intercept + weighted_expr_slope,
+#                data = train_state_summary)
+# summary(train_lm)
+# 
+# # predict test gene expression
+# test_pred <- data.frame()
+# test_state_exp <- data.frame()
+# i <- 0
+# for (gene in test_genes) {
+#   i <- i + 1
+#   if (gene %in% test_state_exp$gene_id_entrez) {
+#       print(paste0("[", i, "/", length(test_genes), "] ", "Skipping ", gene))
+#       next
+#   }
+#   print(paste0("[", i, "/", length(test_genes), "] ", "Processing ", gene))
+# 
+#   result <- fit_hmm(gene, hmm_data, num_states = num_states)
+#   if (is.null(result))
+#     next
+#   
+#   test_state_exp <- rbind(test_state_exp, result)
+# }
+# 
+# test_state_summary <- test_state_exp %>%
+#   group_by(gene_id_entrez) %>%
+#   summarize(
+#     log_expression = dplyr::first(log_expression),
+#     weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
+#     weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
+#     weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
+#     dominant_state = state[which.max(state_prop)][1],
+#     .groups = "drop"
+#   )
+# 
+# pred_exp <- predict(train_lm, newdata = test_state_summary)
+# test_pred <- data.frame(actual = test_state_summary$log_expression,
+#                         pred = pred_exp)
+#   
+# hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
 
 ```
 
@@ -394,10 +399,14 @@ hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
 ################
 # final values #
 ################
+
+mean_lasso_r_squared <- mean(lasso_result$r_squared, na.rm = TRUE)
+mean_hmm_r_squared <- mean(hmm_result$r_squared, na.rm = TRUE)
+
 cat("R for simple correlation:",
     "\n\t all genes = ", cor_all,
     "\n\t expressed genes only = ", cor_expressed,
-    "\nR^2 for LASSO = ", lasso_r_squared,
-    "\nR^2 for HMM = ", hmm_r_squared)
+    "\nR^2 for LASSO = ", mean_lasso_r_squared,
+    "\nR^2 for HMM = ", mean_hmm_r_squared)
 
 ```

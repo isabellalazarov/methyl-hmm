@@ -23,13 +23,21 @@ fit_lasso_per_gene <- function(target_gene, merged_df) {
   X <- as.matrix(select(wide, starts_with("CpG_")))
   Y <- log1p(wide$expression)
   
-  if (var(Y) == 0) {
+  set.seed(123)
+  train_ids <- sample(nrow(wide), floor(0.8 * nrow(wide)))
+  X_train <- X[train_ids, ]
+  X_test <- X[-train_ids, ]
+  Y_train <- Y[train_ids]
+  Y_test <- Y[-train_ids]
+  
+  
+  if (var(Y_train) == 0) {
     return(NULL)
   }
   
   cv_fit <- tryCatch(
-    cv.glmnet(x = X,
-              y= Y,
+    cv.glmnet(x = X_train,
+              y= Y_train,
               family = "gaussian",
               alpha = 1,
               standardize = TRUE,
@@ -40,8 +48,8 @@ fit_lasso_per_gene <- function(target_gene, merged_df) {
     return(NULL)
   }
   
-  predicted_expression <- predict(cv_fit, newx = X, s = "lambda.min")
-  r_squared <- as.numeric(cor(Y, predicted_expression)^2)
+  predicted_expression <- predict(cv_fit, newx = X_test, s = "lambda.min")
+  r_squared <- as.numeric(cor(Y_test, predicted_expression)^2)
   
   list(
     summary = data.frame(gene_id_entrez = target_gene,
