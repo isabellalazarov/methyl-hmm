@@ -305,51 +305,97 @@ ggplot(gene_summary_expressed,
 hmm_data <- arrange(merged_df, gene_id_entrez, start)
 
 # log-transform gene expression values
-hmm_data$log_expression <- log1p(hmm_data$mean_expression)
+hmm_data$log_expression <- log1p(hmm_data$expression)
+
+# use a variable for states
+num_states <- 3
 
 # one row per gene
 gene_ids <- unique(hmm_data$gene_id_entrez)
+# subset for testing
+# gene_ids <- gene_ids[1:100]
 
 # 80% train, 20% test
 train_ids <- sample(length(gene_ids), size = floor(0.8*length(gene_ids)))
 train_genes <- gene_ids[train_ids]
 test_genes <- gene_ids[-train_ids]
 
+# train hmm
 state_exp <- data.frame()
-
+source(here("fit_hmm.R"))
+i <- 0
 for (gene in train_genes) {
-  result <- fit_hmm(gene, hmm_data, nstates = 3)
+  i <- i + 1
+  if (gene %in% state_exp$gene_id_entrez) {
+      print(paste0("[", i, "/", length(train_genes), "] ", "Skipping ", gene))
+      next
+  }
+  print(paste0("[", i, "/", length(train_genes), "] ", "Processing ", gene))
+  result <- fit_hmm(gene, hmm_data, num_states = num_states)
   if(!is.null(result)) 
     state_exp <- rbind(state_exp, result)
 }
 
-# fit linear regression model to learn if state fraction can predict gene exp
-train_lm <- lm(log_expression ~ prop_state1, data = state_exp)
+# summarize state-specific regression coefficients to gene level
+train_state_summary <- state_exp %>%
+  group_by(gene_id_entrez) %>%
+  summarize(
+    log_expression = dplyr::first(log_expression),
+    weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
+    weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
+    weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
+    dominant_state = state[which.max(state_prop)][1],
+    .groups = "drop"
+  )
+
+train_lm <- lm(log_expression ~ weighted_expr_intercept + weighted_expr_slope,
+               data = train_state_summary)
 summary(train_lm)
 
 # predict test gene expression
 test_pred <- data.frame()
+test_state_exp <- data.frame()
+i <- 0
 for (gene in test_genes) {
-  result <- fit_hmm(gene, hmm_data, nstates = 3)
+  i <- i + 1
+  if (gene %in% test_state_exp$gene_id_entrez) {
+      print(paste0("[", i, "/", length(test_genes), "] ", "Skipping ", gene))
+      next
+  }
+  print(paste0("[", i, "/", length(test_genes), "] ", "Processing ", gene))
+
+  result <- fit_hmm(gene, hmm_data, num_states = num_states)
   if (is.null(result))
     next
   
-  pred_exp <- predict(train_lm,
-                      newdata = data.frame(prop_state1 = result$prop_state1,
-                                           prop_state2 = result$prop_state2))
-  test_pred <- rbind(test_pred, data.frame(actual = result$log_expression,
-                                           pred = pred_exp))
+  test_state_exp <- rbind(test_state_exp, result)
 }
+
+test_state_summary <- test_state_exp %>%
+  group_by(gene_id_entrez) %>%
+  summarize(
+    log_expression = dplyr::first(log_expression),
+    weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
+    weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
+    weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
+    dominant_state = state[which.max(state_prop)][1],
+    .groups = "drop"
+  )
+
+pred_exp <- predict(train_lm, newdata = test_state_summary)
+test_pred <- data.frame(actual = test_state_summary$log_expression,
+                        pred = pred_exp)
   
 hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
 
 ```
+
 ```{r}
 ################
 # final values #
 ################
 cat("R for simple correlation:",
-    "\n\t all genes = ", cor_all, 
+    "\n\t all genes = ", cor_all,
     "\n\t expressed genes only = ", cor_expressed,
     "\nR^2 for LASSO = ", lasso_r_squared,
     "\nR^2 for HMM = ", hmm_r_squared)
