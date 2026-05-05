@@ -28,6 +28,7 @@ source(here("fit_hmm_per_gene.R"))
 source(here("fit_lasso_per_gene.R"))
 
 select <- dplyr::select
+slice <- dplyr::slice
 ```
 
 ```{r}
@@ -36,17 +37,15 @@ select <- dplyr::select
 ###############
 
 methyl_raw <- read_tsv("data/methylation/methylation_data.tsv.gz")
-colnames(methyl_raw)[1] <- "probe_id"
+colnames(methyl_raw)[1] <- "probe_id" #CpG site ids
 probe_map <- read_tsv("data/methylation/probe_map")
 colnames(probe_map)[colnames(probe_map) == "#id"] <- "id"
-
 
 rna_raw <- read_tsv("data/gene_expression/gene_expression_data.tsv.gz")
 colnames(rna_raw)[1] <- "gene_id"
 
 phenotype <- read_tsv("data/phenotype_data.tsv.gz")
 
-# hg38_txdb reference of genome
 hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
 ```
@@ -56,22 +55,14 @@ hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 # FILTER SAMPLES #
 ##################
 
-# filter for primary tumor samples
-samples <- pull(
-  filter(phenotype, sample_type.samples == "Primary Tumor"),
-  sample
-)
+# filter for primary tumor samples to reduce noise
+samples <- filter(phenotype, sample_type.samples == "Primary Tumor")
+samples <- pull(samples, sample)
 
 # samples in all three datasets:
 # methyl_matrix, rna_std, phenotype
-matched_samples <- Reduce(intersect, list(
-  colnames(methyl_raw)[-1],
-  colnames(rna_raw)[-1],
-  samples
-))
-
-length(matched_samples)
-head(matched_samples)
+matched_samples <- Reduce(
+  intersect, list(colnames(methyl_raw)[-1], colnames(rna_raw)[-1], samples))
 
 # modify methyl and rna matrices to be matched subset
 methyl_matrix <- select(methyl_raw, probe_id, all_of(matched_samples))
@@ -85,8 +76,10 @@ rna_matrix <- select(rna_raw, gene_id, all_of(matched_samples))
 # STANDARDIZE IDS #
 ###################
 
+# remove version number from ids
 rna_with_ver <- mutate(rna_matrix, gene_id_no_ver = sub("\\..*$", "", gene_id ))
 
+# change ids from ENSEMBL to ENTREZID
 ensg_keys <- unique(rna_with_ver$gene_id_no_ver)
 ensg_to_entrez <- AnnotationDbi::mapIds(
   org.Hs.eg.db,
@@ -96,10 +89,13 @@ ensg_to_entrez <- AnnotationDbi::mapIds(
   multiVals = "first"
 )
 
-rna_std <- mutate(rna_with_ver, gene_id_entrez = as.character(ensg_to_entrez[gene_id_no_ver]))
+# final matched rna dataset
+rna_std <- mutate(
+  rna_with_ver, gene_id_entrez = as.character(ensg_to_entrez[gene_id_no_ver]))
 rna_std <- filter(rna_std, !is.na(gene_id_entrez))
 rna_std <- group_by(rna_std, gene_id_entrez)
-rna_std <- summarize(rna_std, across(all_of(matched_samples), mean, na.rm = TRUE))
+rna_std <- summarize(
+  rna_std, across(all_of(matched_samples), mean, na.rm = TRUE))
 ```
 
 
@@ -112,22 +108,23 @@ rna_std <- summarize(rna_std, across(all_of(matched_samples), mean, na.rm = TRUE
 # FILTER METHYLATION DATA FOR PROMOTER REGIONS #
 ################################################
 
-methyl_gr <- GRanges(seqnames = probe_map$chrom,
-                     ranges = IRanges(start = probe_map$chromStart, end = probe_map$chromEnd),
-                     probe_id = probe_map$id)
-mcols(methyl_gr)$probe_id <- probe_map$id
+# make GRanges object, assign probe ID to chromosome ranges
+methyl_gr <- GRanges(
+  seqnames = probe_map$chrom,
+  ranges = IRanges(start = probe_map$chromStart, end = probe_map$chromEnd),
+  probe_id = probe_map$id)
 
-methyl_gr
+# extract promoter regions
+promoter_regions <- genes(hg38_txdb, single.strand.genes.only=FALSE)
+promoter_regions <- promoters(promoter_regions, upstream=2000, downstream=400)
 
-promoter_regions <- promoters(genes(hg38_txdb, single.strand.genes.only=FALSE), upstream=2000, downstream=400)
+# find overlaps of CpGs in methylation data and gene promoter regions
+probe_overlaps <- overlapsAny(methyl_gr, promoter_regions, ignore.strand = TRUE)
+probes_in_promoter <- probe_map$id[probe_overlaps]
 
-probes_in_promoter <- probe_map$id[overlapsAny(methyl_gr, promoter_regions,
-                                              ignore.strand = TRUE)]
-
+# filter out CpGs not in promoter region from methyl_matrix
 methyl_filtered <- filter(methyl_matrix, probe_id %in% probes_in_promoter)
 
-dim(methyl_filtered)
-head(methyl_filtered)
 ```
 
 ## RNA-seq
@@ -138,63 +135,51 @@ head(methyl_filtered)
 ########################################
 
 hg38_genes <- genes(hg38_txdb)
-rna_seq_ranges <- hg38_genes[hg38_genes$gene_id %in%
-                unique(na.omit(rna_std$gene_id_entrez))]
-
-head(rna_seq_ranges)
-
+genes_in_rna_std <- hg38_genes$gene_id %in% unique(na.omit(rna_std$gene_id_entrez))
+rna_seq_ranges <- hg38_genes[genes_in_rna_std]
 rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
 
-length(rna_seq_promoters)
 
 ```
 
 ```{r}
-################################
+##################################
 # MERGE METHYLATION AND RNA DATA #
-################################
+##################################
 
+# filter out methylation data not in promoter regions
 methyl_gr_filtered <- methyl_gr[mcols(methyl_gr)$probe_id %in% probes_in_promoter]
-hits <- findOverlaps(rna_seq_promoters, methyl_gr_filtered, ignore.strand = TRUE)
-length(hits)
+methyl_rna_overlaps <- findOverlaps(
+  rna_seq_promoters, methyl_gr_filtered, ignore.strand = TRUE)
 
+# dataframe of matched CpG and gene ids
 probe_gene_map <- data.frame(
-  probe_id = mcols(methyl_gr_filtered)$probe_id[subjectHits(hits)],
-  gene_id_entrez = mcols(rna_seq_promoters)$gene_id[queryHits(hits)],
-  chrom = as.character(seqnames(methyl_gr_filtered))[subjectHits(hits)],
-  start = start(methyl_gr_filtered)[subjectHits(hits)]
-)
+  probe_id = mcols(
+    methyl_gr_filtered)$probe_id[subjectHits(methyl_rna_overlaps)],
+  gene_id_entrez = mcols(
+    rna_seq_promoters)$gene_id[queryHits(methyl_rna_overlaps)])
 
+#pivot data long: one row per CpG-sample combo for HMM
 methyl_long_format <- pivot_longer(
   methyl_filtered,
   cols = -probe_id,
   names_to = "sample_id",
-  values_to = "beta"
-)
-methyl_long_format <- inner_join(methyl_long_format, probe_gene_map, by = "probe_id")
+  values_to = "beta")
+methyl_long_format <- inner_join(
+  methyl_long_format, probe_gene_map, by = "probe_id")
 
+#pivot data long: one row per gene-sample combo for HMM
 rna_long_format <- pivot_longer(
   rna_std,
   cols = -gene_id_entrez,
   names_to = "sample_id",
-  values_to = "expression"
-)
+  values_to = "expression")
 
-merged_df <- inner_join(methyl_long_format, rna_long_format, by = c("sample_id", "gene_id_entrez"))
+# merge two long formatted methyl and rna datasets 
+merged_df <- inner_join(
+  methyl_long_format, rna_long_format, by = c("sample_id", "gene_id_entrez"))
 
 head(merged_df)
-```
-
-```{r}
-#########################################
-# SAVE MERGED_DF AS FILE (JUST IN CASE) #
-#########################################
-
-write_csv(merged_df, "exports/merged_final.csv")
-
-if (!exists("merged_df")) {
-  merged_df <- read_csv("exports/merged_final.csv")
-}
 
 ```
 
@@ -244,12 +229,12 @@ paste0("Percentage of genes with R^2 > 0.8 = ", mean(lasso_result$r_squared > 0.
 # signal visualization of worst (lowest R^2) and best (highest R^2) genes
 worst_gene <- lasso_result %>%
   arrange(r_squared) %>%
-  dplyr::slice(150) %>% # first from ascending (by R^2 value) order of genes
+  slice(150) %>% # first from ascending (by R^2 value) order of genes
   pull(gene_id_entrez)
 
 best_gene <- lasso_result %>%
   arrange(desc(r_squared)) %>%
-  dplyr::slice(1) %>% # first from descending (by R^2 value) order of genes
+  slice(1) %>% # first from descending (by R^2 value) order of genes
   pull(gene_id_entrez)
 
 #worst_fit <- all_fits[[as.character(worst_gene)]]
@@ -343,7 +328,7 @@ paste0("Percentage of genes with R^2 > 0.8 = ", mean(hmm_result$r_squared > 0.8,
 
 best_gene <- hmm_result %>%
   arrange(desc(r_squared)) %>%
-  dplyr::slice(1) %>% # gene whose gene expression hmm predicted most accurately
+  slice(1) %>% # gene whose gene expression hmm predicted most accurately
   pull(gene_id_entrez)
 
 best_hmm <- all_hmm_models[[as.character(best_gene)]]
@@ -403,6 +388,7 @@ plot_emissions <- do.call(rbind, lapply(1:3, function(i) {
              log_expression = state_emissions_table$intercept[i] + state_emissions_table$slope[i] * x_range, state = state_emissions_table$state[i])
 }))
 
+# Claude-generated code for regression plot
 ggplot(plot_emissions, aes(x = logit_methylation, y = log_expression, color = state)) + geom_line(size = 1.2) + scale_color_manual(values = c("state 1" = "green4", "state 2" = "yellow2", "state 3" = "red2")) + labs(x = "Logit methylation", y = "Log gene expression", title = "HMM emissions regression lines per state", color = "State") + theme_minimal()
 
 ```
