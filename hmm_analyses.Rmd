@@ -207,12 +207,12 @@ if (!exists("merged_df")) {
 
 set.seed(123)
 
-# get 2000 genes with most CpG sites 
+# get 1000 genes with most CpG sites 
 cpgs_per_gene <- summarize(group_by(merged_df, gene_id_entrez), n_cpgs = n_distinct(probe_id))
 
 target_genes <- cpgs_per_gene %>%
   arrange(desc(n_cpgs)) %>%
-  slice_head(n = 200) %>%
+  slice_head(n = 1000) %>%
   pull(gene_id_entrez)
 
 lasso_result <- NULL
@@ -232,6 +232,7 @@ lasso_result
 # but we ran lasso for 500 genes as opposed to their 4000+
 paste0("Percentage of genes with R^2 > 0.3 = ", mean(lasso_result$r_squared > 0.3, na.rm = TRUE)*100)
 paste0("Percentage of genes with R^2 > 0.5 = ", mean(lasso_result$r_squared > 0.5, na.rm = TRUE)*100)
+paste0("Percentage of genes with R^2 > 0.8 = ", mean(lasso_result$r_squared > 0.8, na.rm = TRUE)*100)
 
 ```
 
@@ -243,7 +244,7 @@ paste0("Percentage of genes with R^2 > 0.5 = ", mean(lasso_result$r_squared > 0.
 # signal visualization of worst (lowest R^2) and best (highest R^2) genes
 worst_gene <- lasso_result %>%
   arrange(r_squared) %>%
-  dplyr::slice(1) %>% # first from ascending (by R^2 value) order of genes
+  dplyr::slice(150) %>% # first from ascending (by R^2 value) order of genes
   pull(gene_id_entrez)
 
 best_gene <- lasso_result %>%
@@ -251,8 +252,8 @@ best_gene <- lasso_result %>%
   dplyr::slice(1) %>% # first from descending (by R^2 value) order of genes
   pull(gene_id_entrez)
 
-worst_fit <- all_fits[[as.character(worst_gene)]]
-plot(worst_fit)
+#worst_fit <- all_fits[[as.character(worst_gene)]]
+#plot(worst_fit)
 best_fit <- all_fits[[as.character(best_gene)]]
 plot(best_fit)
 
@@ -311,11 +312,13 @@ hmm_data$log_expression <- log1p(hmm_data$expression)
 hmm_result <- NULL
 hmm_result <- data.frame()
 all_hmm_fits <- list()
+all_hmm_models <- list()
 for (gene in hmm_target_genes) {
   result <- fit_hmm_per_gene(gene, hmm_data)
   if (!is.null(result)) {
     hmm_result <- bind_rows(hmm_result, result$summary)
     all_hmm_fits[[as.character(gene)]] <- result$lm_fit
+    all_hmm_models[[as.character(gene)]] <- result$hmm_fit
   }
 }
 
@@ -325,73 +328,82 @@ paste0("Percentage of genes with R^2 > 0.3 = ", mean(hmm_result$r_squared > 0.3,
 paste0("Percentage of genes with R^2 > 0.5 = ", mean(hmm_result$r_squared > 0.5, na.rm = TRUE)*100)
 paste0("Percentage of genes with R^2 > 0.8 = ", mean(hmm_result$r_squared > 0.8, na.rm = TRUE)*100)
 
-# # train hmm
-# state_exp <- data.frame()
-# source(here("fit_hmm.R"))
-# i <- 0
-# for (gene in train_genes) {
-#   i <- i + 1
-#   if (gene %in% state_exp$gene_id_entrez) {
-#       print(paste0("[", i, "/", length(train_genes), "] ", "Skipping ", gene))
-#       next
-#   }
-#   print(paste0("[", i, "/", length(train_genes), "] ", "Processing ", gene))
-#   result <- fit_hmm(gene, hmm_data, num_states = num_states)
-#   if(!is.null(result)) 
-#     state_exp <- rbind(state_exp, result)
-# }
-# 
-# # summarize state-specific regression coefficients to gene level
-# train_state_summary <- state_exp %>%
-#   group_by(gene_id_entrez) %>%
-#   summarize(
-#     log_expression = dplyr::first(log_expression),
-#     weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
-#     weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
-#     weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
-#     dominant_state = state[which.max(state_prop)][1],
-#     .groups = "drop"
-#   )
-# 
-# train_lm <- lm(log_expression ~ weighted_expr_intercept + weighted_expr_slope,
-#                data = train_state_summary)
-# summary(train_lm)
-# 
-# # predict test gene expression
-# test_pred <- data.frame()
-# test_state_exp <- data.frame()
-# i <- 0
-# for (gene in test_genes) {
-#   i <- i + 1
-#   if (gene %in% test_state_exp$gene_id_entrez) {
-#       print(paste0("[", i, "/", length(test_genes), "] ", "Skipping ", gene))
-#       next
-#   }
-#   print(paste0("[", i, "/", length(test_genes), "] ", "Processing ", gene))
-# 
-#   result <- fit_hmm(gene, hmm_data, num_states = num_states)
-#   if (is.null(result))
-#     next
-#   
-#   test_state_exp <- rbind(test_state_exp, result)
-# }
-# 
-# test_state_summary <- test_state_exp %>%
-#   group_by(gene_id_entrez) %>%
-#   summarize(
-#     log_expression = dplyr::first(log_expression),
-#     weighted_methyl_intercept = sum(state_prop * methyl_intercept, na.rm = TRUE),
-#     weighted_expr_intercept = sum(state_prop * expr_intercept, na.rm = TRUE),
-#     weighted_expr_slope = sum(state_prop * expr_slope, na.rm = TRUE),
-#     dominant_state = state[which.max(state_prop)][1],
-#     .groups = "drop"
-#   )
-# 
-# pred_exp <- predict(train_lm, newdata = test_state_summary)
-# test_pred <- data.frame(actual = test_state_summary$log_expression,
-#                         pred = pred_exp)
-#   
-# hmm_r_squared <- (cor(test_pred$actual, test_pred$pred))^2
+# n genes = 1000
+# "Percentage of genes with R^2 > 0.3 = 67.3366834170854"
+# "Percentage of genes with R^2 > 0.5 = 56.5326633165829"
+# "Percentage of genes with R^2 > 0.8 = 8.29145728643216"
+
+
+
+```
+```{r}
+####################################
+# EXTRACT TRANSITION PROBABILITIES #
+####################################
+
+best_gene <- hmm_result %>%
+  arrange(desc(r_squared)) %>%
+  dplyr::slice(1) %>% # gene whose gene expression hmm predicted most accurately
+  pull(gene_id_entrez)
+
+best_hmm <- all_hmm_models[[as.character(best_gene)]]
+
+transition_matrix <- matrix(nrow = 3, ncol = 3)
+for(i in 1:3) {
+  transition_matrix[i, ] <- getpars(getmodel(best_hmm, "transition", i))
+}
+
+paste0("Transition Probability Matrix:")
+paste(round(transition_matrix, 4))
+
+
+
+```
+
+
+```{r}
+###########################
+# EXTRACT STATE EMISSIONS #
+###########################
+
+state_emissions <- data.frame()
+for (i in 1:3) {
+  methylation_params <- getpars(best_hmm@response[[i]][[1]])
+  expression_params <- getpars(best_hmm@response[[i]][[2]])
+  
+  state_emissions <- rbind(state_emissions, data.frame(
+    state = paste("state", i),
+    methylation_logit_mean = methylation_params[1],
+    methylation_logit_sd = methylation_params[2],
+    expression_intercept = expression_params[1],
+    expression_slope = expression_params[2]
+  ))
+}
+  
+state_emissions <- arrange(select(mutate(state_emissions, methylation_beta_mean = plogis(methylation_logit_mean)), state, methylation_beta_mean, methylation_logit_sd, expression_intercept, expression_slope), methylation_beta_mean)
+
+rownames(state_emissions) <- NULL
+
+print("state emissions for best gene:")
+print(state_emissions, digits = 3)
+```
+
+```{r}
+  
+state_emissions_table <- data.frame(
+  state = c("state 1", "state 2", "state 3"),
+  intercept = c(0.0294, 1.8850, 0.5876),
+  slope = c(0.000571, -0.050789, -0.014226),
+  methylation_beta_mean = c(0.417, 0.103, 0.349))
+
+x_range <- seq(-5, 2, length.out = 100)
+
+plot_emissions <- do.call(rbind, lapply(1:3, function(i) {
+  data.frame(logit_methylation = x_range,
+             log_expression = state_emissions_table$intercept[i] + state_emissions_table$slope[i] * x_range, state = state_emissions_table$state[i])
+}))
+
+ggplot(plot_emissions, aes(x = logit_methylation, y = log_expression, color = state)) + geom_line(size = 1.2) + scale_color_manual(values = c("state 1" = "green4", "state 2" = "yellow2", "state 3" = "red2")) + labs(x = "Logit methylation", y = "Log gene expression", title = "HMM emissions regression lines per state", color = "State") + theme_minimal()
 
 ```
 
@@ -404,9 +416,22 @@ mean_lasso_r_squared <- mean(lasso_result$r_squared, na.rm = TRUE)
 mean_hmm_r_squared <- mean(hmm_result$r_squared, na.rm = TRUE)
 
 cat("R for simple correlation:",
-    "\n\t all genes = ", cor_all,
-    "\n\t expressed genes only = ", cor_expressed,
+    "\n\t all genes = ", cor_all, 
+    "\n\t expressed genes only = ", cor_expressed, 
     "\nR^2 for LASSO = ", mean_lasso_r_squared,
     "\nR^2 for HMM = ", mean_hmm_r_squared)
+
+# for n genes = 500, 
+  # cor = -0.433092
+  # cor -0.4313537
+    # lasso r_squared = 0.1398693
+    # hmm r_squared = 0.4878641
+
+#for n genes = 1000, 
+  # cor = -0.433092
+  # cor = -0.4313537
+# lasso r_squared = 0.1237019
+# hmm r_squared = 0.4643905
+
 
 ```

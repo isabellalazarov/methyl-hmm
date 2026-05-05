@@ -5,7 +5,8 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
   gene_data <- filter(hmm_data, gene_id_entrez == gene)
   
   n_cpgs <- length(unique(gene_data$probe_id))
-  if (n_cpgs < 2) {
+  # gene needs to have 10+ CpG sites for meaningful HMM traversal
+  if (n_cpgs < 10) {
     return(NULL)
   } 
   
@@ -44,6 +45,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
     suppressWarnings(fit(hmm_model, verbose = FALSE))
   }, error = function(e) NULL)
   
+  # convergence failure: if methyl-gex relationship not identified by states
   if (is.null(train_hmm)) {
     return(NULL)
   }
@@ -67,6 +69,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
   
   test_data$state <- posterior(test_hmm, type = "viterbi")$state
   
+  # proportion of CpG sites per sample in each state
   calculate_proportions <- function(df) {
     summarize(group_by(df, sample_id), log_expression = dplyr::first(log_expression), 
               prop_in_state_1 = mean (state == 1),
@@ -107,6 +110,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
     n_cpgs = n_cpgs,
     n_samples = n_samples,
     r_squared = r_squared),
-    lm_fit = lm_fit)
+    lm_fit = lm_fit,
+    hmm_fit = train_hmm)
   
 }
