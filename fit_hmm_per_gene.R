@@ -1,12 +1,10 @@
 fit_hmm_per_gene <- function(gene, hmm_data) {
   
-  num_states <- 3
-  
   gene_data <- filter(hmm_data, gene_id_entrez == gene)
   
-  n_cpgs <- length(unique(gene_data$probe_id))
+  num_cpgs <- length(unique(gene_data$probe_id))
   # gene needs to have 10+ CpG sites for meaningful HMM traversal
-  if (n_cpgs < 10) {
+  if (num_cpgs < 10) {
     return(NULL)
   } 
   
@@ -39,7 +37,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
     hmm_model <- depmix(
       list(beta_logit ~ 1, log_expression ~ beta_logit),
       data = train_data,
-      nstates = num_states,
+      nstates = 3,
       family = list(gaussian(), gaussian()),
       ntimes = train_sequences) 
     suppressWarnings(fit(hmm_model, verbose = FALSE))
@@ -57,7 +55,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
     hmm_model <- depmix(
       list(beta_logit ~ 1, log_expression ~ beta_logit),
       data = test_data,
-      nstates = num_states,
+      nstates = 3,
       family = list(gaussian(), gaussian()),
       ntimes = test_sequences) 
     setpars(hmm_model, learned_params) # use parameters learned from train data
@@ -107,7 +105,7 @@ fit_hmm_per_gene <- function(gene, hmm_data) {
   
   list(summary = data.frame(
     gene_id_entrez = gene,
-    n_cpgs = n_cpgs,
+    num_cpgs = num_cpgs,
     n_samples = n_samples,
     r_squared = r_squared),
     lm_fit = lm_fit,
