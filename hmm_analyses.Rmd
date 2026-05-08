@@ -34,7 +34,7 @@ slice <- dplyr::slice
 
 ```{r}
 ###############
-# UPLOAD DATA #
+# UPLOAD DATA #     (SKIP IF USING SMALL INPUT FILE)
 ###############
 
 methyl_raw <- read_tsv("data/methylation/methylation_data.tsv.gz")
@@ -53,8 +53,8 @@ hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
 ```{r}
 ##################
-# FILTER SAMPLES #
-##################
+# FILTER SAMPLES #    (SKIP IF USING SMALL INPUT FILE)
+##################    
 
 # filter for primary tumor samples to reduce noise
 samples <- filter(phenotype, sample_type.samples == "Primary Tumor")
@@ -74,7 +74,7 @@ rna_matrix <- select(rna_raw, gene_id, all_of(matched_samples))
 
 ```{r}
 ###################
-# STANDARDIZE IDS #
+# STANDARDIZE IDS #     (SKIP IF USING SMALL INPUT FILE)
 ###################
 
 # remove version number from ids
@@ -106,7 +106,7 @@ rna_std <- summarize(
 
 ```{r, warning = FALSE}
 ################################################
-# FILTER METHYLATION DATA FOR PROMOTER REGIONS #
+# FILTER METHYLATION DATA FOR PROMOTER REGIONS # (SKIP IF USING SMALL INPUT FILE)
 ################################################
 
 # make GRanges object, assign probe ID to chromosome ranges
@@ -132,7 +132,7 @@ methyl_filtered <- filter(methyl_matrix, probe_id %in% probes_in_promoter)
 
 ```{r}
 ########################################
-# FILTER RNA DATA FOR PROMOTER REGIONS #
+# FILTER RNA DATA FOR PROMOTER REGIONS # (SKIP IF USING SMALL INPUT FILE)
 ########################################
 
 hg38_genes <- genes(hg38_txdb)
@@ -145,7 +145,7 @@ rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
 
 ```{r}
 ##################################
-# MERGE METHYLATION AND RNA DATA #
+# MERGE METHYLATION AND RNA DATA # (SKIP IF USING SMALL INPUT FILE)
 ##################################
 
 # filter out methylation data not in promoter regions
@@ -191,7 +191,7 @@ head(merged_df)
 
 ```{r}
 ###########################
-# Create small input file #
+# Create small input file #   (SKIP IF USING SMALL INPUT FILE)
 ###########################
 
 # later filtering of genes with fewer CpG sites for HMM may produce worse results
@@ -203,6 +203,15 @@ write_csv(sample_input_data, "sample_input.csv")
 
 ```
 
+```{r, eval=FALSE}
+#############################
+# IF USING SMALL INPUT FILE #
+#############################
+
+# first 20 genes in order of larger dataset
+merged_df <- read_csv("sample_input.csv")
+
+```
 
 ```{r}
 ##################
@@ -240,25 +249,31 @@ paste0("Percentage of genes with R^2 > 0.8 = ", mean(lasso_result$r_squared > 0.
 ```
 
 ```{r}
-########################################
+##############################################
 # LASSO SIGNAL VISUALS: WORST AND BEST GENES #
-########################################
+##############################################
 
 # signal visualization of worst (lowest R^2)... 
 lasso_gene_rankings_asc <- arrange(lasso_result, r_squared)
 worst_gene_lasso <- slice(lasso_gene_rankings_asc, 1)
-worst_gene_lasso <- pull(worst_gene_lasso, gene_id_entrez)
+worst_gene_lasso_id <- pull(worst_gene_lasso, gene_id_entrez)
+worst_gene_r_squared <- pull(worst_gene_lasso, r_squared)
 
 # ... and best (highest R^2) genes
 lasso_gene_rankings_desc <- arrange(lasso_result, desc(r_squared))
 best_gene_lasso <- slice(lasso_gene_rankings_desc, 1)
-best_gene_lasso <- pull(best_gene_lasso, gene_id_entrez)
+best_gene_lasso_id <- pull(best_gene_lasso, gene_id_entrez)
+best_gene_lasso_r_squared <- pull(best_gene_lasso, r_squared)
 
-worst_fit <- all_fits[[as.character(worst_gene_lasso)]]
-plot(worst_fit)
-
-best_fit <- all_fits[[as.character(best_gene_lasso)]]
+best_fit <- all_fits[[as.character(best_gene_lasso_id)]]
 plot(best_fit)
+title("LASSO fit: best gene", line = 2.5)
+paste0("best gene r^2 = ", best_gene_lasso_r_squared)
+
+worst_fit <- all_fits[[as.character(worst_gene_lasso_id)]]
+plot(worst_fit)
+title("LASSO fit: worst gene", line = 2.5)
+paste0("worst gene r^2 = ", worst_gene_r_squared)
 
 ```
 
@@ -298,6 +313,7 @@ ggplot(
        title = "Promoter Methylation vs Gene Expression (Expressed Genes Only)")
 
 ```
+
 
 ```{r}
 ################
@@ -346,13 +362,16 @@ paste0("Percentage of genes with R^2 > 0.8 = ", mean(hmm_result$r_squared > 0.8,
 
 hmm_gene_rankings_desc <- arrange(hmm_result, desc(r_squared))
 best_gene_hmm <- slice(hmm_gene_rankings_desc, 1)
-best_gene_hmm <- pull(best_gene_hmm, gene_id_entrez)
+best_gene_hmm_id <- pull(best_gene_hmm, gene_id_entrez)
+best_gene_hmm_r_squared <- pull(best_gene_hmm, r_squared)
 
-worse_gene_hmm <- slice(hmm_gene_rankings_desc, 300)
-worse_gene_hmm <- pull(worse_gene_hmm, gene_id_entrez)
+num_genes_fit <- nrow(hmm_result)
+worst_gene_hmm <- slice(hmm_gene_rankings_desc, num_genes_fit)
+worst_gene_hmm_id <- pull(worst_gene_hmm, gene_id_entrez)
+worst_gene_hmm_r_squared <- pull(worst_gene_hmm, r_squared)
 
-best_hmm <- all_hmm_models[[as.character(best_gene_hmm)]]
-worse_hmm <- all_hmm_models[[as.character(worse_gene_hmm)]]
+best_hmm <- all_hmm_models[[as.character(best_gene_hmm_id)]]
+worst_hmm <- all_hmm_models[[as.character(worst_gene_hmm_id)]]
 
 # fit hmm on best and worst genes each
 # can change best_hmm and worse_hmm as desired
@@ -363,14 +382,16 @@ for(i in 1:3) {
 
 transition_matrix_worse <- matrix(nrow = 3, ncol = 3)
 for(i in 1:3) {
-  transition_matrix_worse[i, ] <- getpars(getmodel(worse_hmm, "transition", i))
+  transition_matrix_worse[i, ] <- getpars(getmodel(worst_hmm, "transition", i))
 }
 
 paste0("transition probability matrix for best gene:")
-paste(round(transition_matrix_best, 4))
+paste0(round(transition_matrix_best, 4))
+paste0("best gene r^2 = ", best_gene_hmm_r_squared)
 
-paste0("transition probability matrix for worse gene (300th place):")
-paste(round(transition_matrix_worse, 4))
+paste0("transition probability matrix for worst gene:")
+paste0(round(transition_matrix_worse, 4))
+paste0("worst gene r^2 = ", worst_gene_hmm_r_squared)
 
 ```
 
@@ -413,24 +434,20 @@ print(state_emissions, digits = 3)
 ```
 
 ```{r}
-###################
-# EMISSIONS TABLE #
-###################
-  
-state_emissions_table <- data.frame(
-  state = c("state 1", "state 2", "state 3"),
-  intercept = c(0.0294, 1.8850, 0.5876),
-  slope = c(0.000571, -0.050789, -0.014226),
-  methylation_beta_mean = c(0.417, 0.103, 0.349))
+#############################
+# EMISSIONS REGRESSION PLOT #
+#############################
 
+# evenly spaced out x-axis
 x_range <- seq(-5, 2, length.out = 100)
 
 plot_emissions <- do.call(rbind, lapply(1:3, function(i) {
   data.frame(logit_methylation = x_range,
-             log_expression = state_emissions_table$intercept[i] +
-               state_emissions_table$slope[i] * x_range,
-             state = state_emissions_table$state[i])
+             log_expression = state_emissions$expression_intercept[i] +
+               state_emissions$expression_slope[i] * x_range,
+             state = state_emissions$state[i])
 }))
+
 
 # Claude-generated code for regression plot - we chose colors to match 
 # diagram in slides/report though!
