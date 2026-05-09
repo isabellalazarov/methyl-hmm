@@ -75,7 +75,7 @@ methyl-hmm
 
 ## Sample Execution
 
-To run the project with the sample input file, set `use_sample` at the beginning of `hmm_analyses` to `TRUE`, then run the entire file.
+To run the project with the sample input file, set `use_sample` at the beginning of `hmm_analyses` to `TRUE`, then run the entire `hmm_analyses` file.
 
 ## Reproducing Results
 
@@ -98,10 +98,3 @@ To produce the old results, Python version 3.11.9 was used with the following li
 - `gzip` from Python Standard Library
 
 Simply run `download_encode.py` to produce the output files in the `exports/` folder, then run `old_pipeline.R`, which will produce the LASSO and correlation analyses. The HMM was not run on the old data due to the poor quality of results.
-
-
-
-
-requirements (DELETE):
-• Sample, small input and output files.
-• A ReadMe file that tells how to  test-run the project on sample inputs to get the sample output, what are the parameters
