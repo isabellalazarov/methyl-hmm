@@ -54,17 +54,19 @@ methyl-hmm
 
 `fit_lasso_per_gene.R`: File containing a function to fit a LASSO model for a gene. Takes in the data frame and a target gene ID, and returns the fitted model and a summary data frame including the provided gene ID, number of CpGs and samples found for that gene, and the $R^2$ of the learned model after it was run on the test set, or `NULL` if the function failed at any point. This was used to evaluate the performance of the LASSO model for each gene.
 
-`fit_hmm_per_gene.R`: File containing a function to fit an HMM for a gene. 
+`fit_hmm_per_gene.R`: File containing a function to fit a 3-state HMM for a gene. Takes in the sorted and log transformed data frame and a target gene ID, and returns a summary data frame including the provided gene ID, number of CpGs and samples found for that gene, the $R^2$ of the learned model after it was run on the test set, the linear model predicting gene expression from the proportions of CpGs in each state, and a trained HMM object from which transition probabilities and emission parameters are derived, or `NULL` if the function failed at any point. This was used to evaluate the performance of the HMM model for each gene.
 
-`methyl_hmm.Rproj`: 
+`methyl_hmm.Rproj`: Project file which sets working directory to methyl_hmm folder.
 
-`sample_input.csv`: Small sample input file
+`sample_input.csv`: Small sample input file of first 20 genes from original large merge_df dataset
 
 *Old files:*
 
-`download_encode.py`: Initial Python script used to 
+`download_encode.py`: Initial Python script used to download data from ENCODE
 
-`exports/`: Folder containing the processed data files from `download_encode.py`. should we talk about each individual file?
+`exports/`: Folder containing the processed data files from `download_encode.py`.
+
+
 
 ## Reproducing Results
 
@@ -78,8 +80,9 @@ R version 4.5.2 was used with the following packages installed, as well as their
 - `depmixS4` version 1.5-1
 - `here` version 1.0.2
 
-To run 
+To run the program on the small sample input file, set use_sample = TRUE in the first chunk of the hmm_analyses.Rmd file. This will skip any chunks where the original large datasets are preprocessed and saved in merge_df reference.
 
+To run the progroam on the large original input file, set use_sample = FALSE in the first chunk of the hmm_analyses.Rmd file. This will skip the chunk where merged_df is assigned a 20-gene subset of the original large dataset.
 
 
 To produce the old results, Python 
