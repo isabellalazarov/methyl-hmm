@@ -64,6 +64,8 @@ methyl-hmm
 
 `sample_input.csv`: Small sample input file of first 20 genes from original large merge_df dataset
 
+`sample_output_file.pdf`: Output produced when running the pipeline with `sample_input.csv`.
+
 *Old files:*
 
 `download_encode.py`: Initial Python script used to download data from ENCODE
