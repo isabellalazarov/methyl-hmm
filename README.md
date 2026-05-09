@@ -77,7 +77,7 @@ methyl-hmm
 
 ## Sample Execution
 
-To run the project with the sample input file, set `use_sample` at the beginning of `hmm_analyses` to `TRUE`, then run the entire `hmm_analyses` file.
+To run the project with the sample input file, set `use_sample` in the first chunk of `hmm_analyses.Rmd` to `TRUE`, then run the entire `hmm_analyses.Rmd` file.
 
 ## Reproducing Results
 
@@ -91,7 +91,7 @@ R version 4.5.2 was used with the following packages installed, as well as their
 - `depmixS4` version 1.5-1
 - `here` version 1.0.2
 
-To run the pipeline on the large input files, follow the data downloading steps outlined above, then simply run `hmm_analyses.Rmd` to produce the full results.
+To run the pipeline on the large input files, follow the data downloading steps outlined above, then set `use_sample` in the first chunk of `hmm_analyses.Rmd` to `TRUE`, then simply run the entire `hmm_analyses.Rmd` file to produce the full results.
 
 To produce the old results, Python version 3.11.9 was used with the following libraries imported:
 - `requests` version 2.32.5
