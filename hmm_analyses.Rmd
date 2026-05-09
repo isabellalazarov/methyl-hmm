@@ -8,7 +8,7 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-use_sample <- FALSE # TRUE FOR SMALL SAMPLE DATASET OR FALSE FOR FULL DATASET
+use_sample <- TRUE # TRUE FOR SMALL SAMPLE DATASET OR FALSE FOR FULL DATASET
 ```
 
 # Import data and libraries

@@ -1,6 +1,6 @@
 # Predicting Gene Expression with Methylation-GEX Relationships Across Promoter Regions with an HMM
 
-some description here?? idk
+This program aims to identify the link between methylation levels and gene expression and how the HMM learns this relationship in the process of predicting gene expression. We are taking advantage of the HMM’s ability to identify spatial structure across a sequence of CpG sites, reflecting the biological reality of adjacent and highly correlated CpG sites. This project aims to compare the HMM's performance in predicting gene expression through learned transition probabilities and emmission parameters to a baseline LASSO regression model, which treats CpG sites as independent features of a gene, and thus independent predictors of gene expression. We also include a basic correlation test to analyze the general relationship between methylation and gene expression.
 
 ## Data 
 
@@ -17,24 +17,29 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
    - Inside `gene_expression/`, place `gene_expression_data.tsv.gz`.
    - In `data/` but outside the two subfolders, place `phenotype_data.tsv.gz`.
    - The final directory structure should match the following:
-   ```
-
-   ```
+        ```
+        data
+        ├── gene_expression
+        │   └── gene_expression_data.tsv.gz
+        ├── methylation
+        │   ├── methylation_data.tsv.gz
+        │   └── probe_map
+        └── phenotype_data.tsv.gz
+        ```
 3. **Run preprocessing steps**
-   - test
-4. 
+    - Run `hmm_analyses.Rmd`. The first half of this file preprocesses the raw data and creates the data frame `merged_df` in the R environment, which is used for all downstream analyses.
 
 ## Project Structure
 
 ```
 methyl-hmm
 ├── README.md
-├── data  (not in repository)
+├── data  (too large - not in repository)
+│   ├── gene_expression
+│   │   └── gene_expression_data.tsv.gz
 │   ├── methylation
 │   │   ├── methylation_data.tsv.gz
 │   │   └── probe_map
-│   ├── gene_expression
-│   │   └── gene_expression_data.tsv.gz
 │   └── phenotype_data.tsv.gz
 ├── download_encode.py
 ├── exports
@@ -46,25 +51,31 @@ methyl-hmm
 ├── fit_lasso_per_gene.R
 ├── hmm_analyses.Rmd
 ├── methyl_hmm.Rproj
-
 └── sample_input.csv
 ```
 
-`hmm_analyses.Rmd`: 
+`hmm_analyses.Rmd`: File that preprocesses data and runs all analyses, including a simple correlation, LASSO, and the HMM. This file also generates plots used in the report.
 
 `fit_lasso_per_gene.R`: File containing a function to fit a LASSO model for a gene. Takes in the data frame and a target gene ID, and returns the fitted model and a summary data frame including the provided gene ID, number of CpGs and samples found for that gene, and the $R^2$ of the learned model after it was run on the test set, or `NULL` if the function failed at any point. This was used to evaluate the performance of the LASSO model for each gene.
 
-`fit_hmm_per_gene.R`: File containing a function to fit an HMM for a gene. 
+`fit_hmm_per_gene.R`: File containing a function to fit a 3-state HMM for a gene. Takes in the sorted and log transformed data frame and a target gene ID, and returns a summary data frame including the provided gene ID, number of CpGs and samples found for that gene, the $R^2$ of the learned model after it was run on the test set, the linear model predicting gene expression from the proportions of CpGs in each state, and a trained HMM object from which transition probabilities and emission parameters are derived, or `NULL` if the function failed at any point. This was used to evaluate the performance of the HMM model for each gene.
 
-`methyl_hmm.Rproj`: 
+`methyl_hmm.Rproj`: Project file which sets working directory to methyl_hmm folder.
 
-`sample_input.csv`: Small sample input file
+`sample_input.csv`: Small sample input file of first 20 genes from original large merge_df dataset
 
 *Old files:*
 
-`download_encode.py`: Initial Python script used to 
+`download_encode.py`: Initial Python script used to download data from ENCODE
 
-`exports/`: Folder containing the processed data files from `download_encode.py`. should we talk about each individual file?
+`exports/`: Folder containing the processed data files from `download_encode.py`.
+
+`old_pipeline.R`: File containing the old preprocessing steps as well as the initial LASSO and correlation analyses. Used to produce some r values and a plot in the report.
+
+
+## Sample Execution
+
+To run the project with the sample input file, set `use_sample` at the beginning of `hmm_analyses` to `TRUE`, then run the entire `hmm_analyses` file.
 
 ## Reproducing Results
 
@@ -78,18 +89,12 @@ R version 4.5.2 was used with the following packages installed, as well as their
 - `depmixS4` version 1.5-1
 - `here` version 1.0.2
 
-To run 
+To run the pipeline on the large input files, follow the data downloading steps outlined above, then simply run `hmm_analyses.Rmd` to produce the full results.
 
+To produce the old results, Python version 3.11.9 was used with the following libraries imported:
+- `requests` version 2.32.5
+- `os` from Python Standard Library
+- `csv` from Python Standard Library
+- `gzip` from Python Standard Library
 
-
-To produce the old results, Python 
-Simply run `download_encode.py` to produce the output files in the `exports/` folder.
-
-
-
-
-requirements (DELETE):
-• All source code/scripts. This includes any code used to generate display items used in your report, including supplementary materials.
-• Sample, small input and output files.
-• If your project generally operates on “large” data files that are available publicly, list the names of these files and where to get them.
-• A ReadMe file that tells exactly what is each file, how to compile (if relevant) and test-run the project on sample inputs to get the sample output, how to really run the project on large files, if relevant, what are the parameters, ~~what are the system requirements (e.g. are you using a particular version of matlab/Python/R/Ruby/Java/C++? Do you run on a particularly powerful machine/cloud instance? Which standard or add-on libraries would you need to have been previously installed?)~~
+Simply run `download_encode.py` to produce the output files in the `exports/` folder, then run `old_pipeline.R`, which will produce the LASSO and correlation analyses. The HMM was not run on the old data due to the poor quality of results.
