@@ -17,9 +17,8 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
    - Inside `gene_expression/`, place `gene_expression_data.tsv.gz`.
    - In `data/` but outside the two subfolders, place `phenotype_data.tsv.gz`.
    - The final directory structure should match the following:
-   ```
-
-   ```
+```
+```
 3. **Run preprocessing steps**
    - test
 4. 
@@ -29,7 +28,7 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
 ```
 methyl-hmm
 ├── README.md
-├── data  (not in repository)
+├── data  (too large - not in repository)
 │   ├── methylation
 │   │   ├── methylation_data.tsv.gz
 │   │   └── probe_map
