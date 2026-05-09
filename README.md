@@ -17,9 +17,8 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
    - Inside `gene_expression/`, place `gene_expression_data.tsv.gz`.
    - In `data/` but outside the two subfolders, place `phenotype_data.tsv.gz`.
    - The final directory structure should match the following:
-        ```
-        please paste tree results here thanks!!
-        ```
+```
+```
 3. **Run preprocessing steps**
     - Run `hmm_analyses.Rmd`. The first half of this file preprocesses the raw data and creates the data frame `merged_df` in the R environment, which is used for all downstream analyses.
 
@@ -28,9 +27,7 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
 ```
 methyl-hmm
 ├── README.md
-├── data  (not in repository)
-│   ├── gene_expression
-│   │   └── gene_expression_data.tsv.gz
+├── data  (too large - not in repository)
 │   ├── methylation
 │   │   ├── methylation_data.tsv.gz
 │   │   └── probe_map
