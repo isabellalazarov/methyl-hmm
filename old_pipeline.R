@@ -7,7 +7,12 @@ library(org.Hs.eg.db)
 select <- dplyr::select
 
 rna_seq <- read_csv("exports/rna_seq_merged.csv")
-wgbs <- read_csv("exports/wgbs_merged.csv")
+wgbs <- read_tsv("exports/wgbs_k562_cpg.bed.gz",
+                  col_names = c("chrom", "start", "end", "name", "score",
+                               "strand", "thickStart", "thickEnd", "rgb",
+                               "coverage", "methylation_percent")) %>%
+  select(chrom, start, end, strand, methylation_percent) %>%
+  mutate(accession = "ENCSR765JPC")
 
 hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
@@ -109,86 +114,69 @@ merged_df <- merged_df %>%
         mean_expression = mean(expected_count)
     )
 
-# Save to file (for easy loading)
+# LASSO analysis
 
-# write_csv(merged_df, "exports/merged_final.csv")
+# for glmnet format: one row per gene, one column per CpG site
+merged_wide <- pivot_wider(
+  ungroup(
+    mutate(
+      group_by(merged_df, gene_id_entrez),
+      cpg_index = paste0("cpg_", row_number())
+    )
+  ),
+  id_cols = c(gene_id_entrez, mean_expression),
+  names_from = cpg_index,
+  values_from = mean_methylation,
+  values_fill = 0
+)
+
+X <- as.matrix(select(merged_wide, starts_with("cpg_")))
+Y <- merged_wide$mean_expression
+
+set.seed(123)
+k <- 10
+foldid <- sample(rep(1:k, length.out = nrow(merged_wide)))
+
+cv_fit <- cv.glmnet(
+  x = X,
+  y = Y,
+  family = "gaussian",
+  alpha = 1,
+  foldid = foldid,
+  standardize = TRUE
+)
+
+best_lambda = cv_fit$lambda.min
+
+plot(cv_fit)
+
+predicted <- predict(cv_fit, newx = X, s = "lambda.min")
+lasso_r_squared <- cor(Y, predicted)^2
+paste("r^2 value = ", lasso_r_squared)
+
+# Correlation analysis
 
 # average methylation per gene
 gene_summary <- summarize(
-    group_by(merged_df, gene_id_entrez),
-    avg_methylation = mean(beta, na.rm = TRUE),
-    avg_expression = mean(expression, na.rm = TRUE)
-)
+  group_by(merged_df, gene_id_entrez),
+  avg_methylation = mean(mean_methylation),
+  avg_expression = mean(mean_expression)
+  )
 
 # correlation using all genes including those w/o expression 
 # some may be silent due to reasons other than methylation
-cor_all <- cor(
-    gene_summary$avg_methylation, gene_summary$avg_expression, use = "complete.obs")
-paste("correlation (all genes) = ", round(cor_all, 4))
+cor_all <- cor(gene_summary$avg_methylation, gene_summary$avg_expression)
+paste("correlation (all genes) = ", cor_all)
 
 # correlation using only genes with expression > 0
 gene_summary_expressed <- filter(gene_summary, avg_expression > 0)
-cor_expressed <- cor(gene_summary_expressed$avg_methylation,
-                     gene_summary_expressed$avg_expression,
-                     use = "complete.obs")
-paste("correlation (expressed genes only) = ", round(cor_expressed, 4))
+cor_expressed <- cor(gene_summary_expressed$avg_methylation, 
+     gene_summary_expressed$avg_expression)
+paste("correlation (expressed genes only) = ", cor_expressed)
 
-ggplot(
-    gene_summary_expressed,
-    aes(x = avg_methylation, y = log1p(avg_expression))) +
-    geom_point(alpha = 0.3, size = 0.5) +
-    labs(x = "Average Promoter Methylation (%)",
-         y = "Log Gene Expression/Log(Expected Count + 1)",
-         title = "Promoter Methylation vs Gene Expression (Expressed Genes Only)")
-
-
-set.seed(123)
-
-cpgs_per_gene <- summarize(group_by(merged_df, gene_id_entrez), n_cpgs = n_distinct(probe_id))
-
-# get 1000 genes with most CpG sites 
-target_genes <- arrange(cpgs_per_gene, desc(n_cpgs)) 
-target_genes <- slice_head(target_genes, n = 1000)
-target_genes <- pull(target_genes, gene_id_entrez)
-
-lasso_result <- NULL
-lasso_result <- data.frame()
-all_fits <- list()
-for (gene in target_genes) {
-    result <- fit_lasso_per_gene(gene, merged_df)
-    if (!is.null(result)) {
-        lasso_result <- bind_rows(lasso_result, result$summary)
-        all_fits[[as.character(gene)]] <- result$cv_fit
-    }
-}
-
-lasso_result
-
-# better R^2 results than Zhong et al.,
-# but we run lasso for 1000 genes as opposed to their 4000+
-paste0("Percentage of genes with R^2 > 0.3 = ", mean(lasso_result$r_squared > 0.3, na.rm = TRUE)*100)
-paste0("Percentage of genes with R^2 > 0.5 = ", mean(lasso_result$r_squared > 0.5, na.rm = TRUE)*100)
-paste0("Percentage of genes with R^2 > 0.8 = ", mean(lasso_result$r_squared > 0.8, na.rm = TRUE)*100)
-
-# signal visualization of worst (lowest R^2)... 
-lasso_gene_rankings_asc <- arrange(lasso_result, r_squared)
-worst_gene_lasso <- slice(lasso_gene_rankings_asc, 1)
-worst_gene_lasso_id <- pull(worst_gene_lasso, gene_id_entrez)
-worst_gene_r_squared <- pull(worst_gene_lasso, r_squared)
-
-# ... and best (highest R^2) genes
-lasso_gene_rankings_desc <- arrange(lasso_result, desc(r_squared))
-best_gene_lasso <- slice(lasso_gene_rankings_desc, 1)
-best_gene_lasso_id <- pull(best_gene_lasso, gene_id_entrez)
-best_gene_lasso_r_squared <- pull(best_gene_lasso, r_squared)
-
-best_fit <- all_fits[[as.character(best_gene_lasso_id)]]
-plot(best_fit)
-title("LASSO fit: best gene", line = 2.5)
-paste0("best gene r^2 = ", best_gene_lasso_r_squared)
-
-worst_fit <- all_fits[[as.character(worst_gene_lasso_id)]]
-plot(worst_fit)
-title("LASSO fit: worst gene", line = 2.5)
-paste0("worst gene r^2 = ", worst_gene_r_squared)
-
+ggplot(gene_summary_expressed,
+       aes(x = avg_methylation, y = log1p(avg_expression))) + 
+  geom_point(alpha = 0.3, size = 0.5) +
+  labs(x = "Average Promoter Methylation (%)",
+       y = "Log Gene Expression/Log(Expected Count + 1)",
+       title = "Promoter Methylation vs Gene Expression (Expressed Genes Only)")
