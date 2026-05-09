@@ -2,13 +2,29 @@
 
 ## Data 
 
-Data was obtained from TCGA-COAD. 
+Data was obtained from TCGA-COAD. The raw and preprocessed data files were not included in this repository due to their size, but they can be obtained through the following steps:
+
+1. **Download raw data**
+   - Files will be downloaded from the following respositories: [methylation](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.methylation450.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443), [gene expression](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.star_fpkm-uq.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443), and [phenotype](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.clinical.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443).
+   - From the methylation repository, download the [data](https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-COAD.methylation450.tsv.gz) file (next to "download" on the website) and call it `methylation_data.tsv.gz`. Then, download the [probe mapping](https://gdc-hub.s3.us-east-1.amazonaws.com/download/HM450.hg38.manifest.gencode.v36.probeMap) (next to "ID/Gene Mapping" on the website) and call it `probe_map`.
+   - From the gene expression repository,
+   - From the phenotype repository
+2. **Run preprocessing steps**
+   - test
+3. 
 
 ## Project Structure
 
 ```
 methyl-hmm
 ├── README.md
+├── data  (not in repository)
+│   ├── methylation
+│   │   ├── methylation_data.tsv.gz
+│   │   └── probe_map
+│   ├── gene_expression
+│   │   └── gene_expression_data.tsv.gz
+│   └── phenotype_data.tsv.gz
 ├── download_encode.py
 ├── exports
 │   ├── rna_seq_manifest.csv
