@@ -8,6 +8,7 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+use_sample <- FALSE # TRUE FOR SMALL SAMPLE DATASET OR FALSE FOR FULL DATASET
 ```
 
 # Import data and libraries
@@ -30,73 +31,87 @@ source(here("fit_lasso_per_gene.R"))
 
 select <- dplyr::select
 slice <- dplyr::slice
+
 ```
 
 ```{r}
 ###############
-# UPLOAD DATA #     (SKIP IF USING SMALL INPUT FILE)
+# UPLOAD DATA # 
 ###############
 
-methyl_raw <- read_tsv("data/methylation/methylation_data.tsv.gz")
-colnames(methyl_raw)[1] <- "probe_id" #CpG site ids
-probe_map <- read_tsv("data/methylation/probe_map")
-colnames(probe_map)[colnames(probe_map) == "#id"] <- "id"
-
-rna_raw <- read_tsv("data/gene_expression/gene_expression_data.tsv.gz")
-colnames(rna_raw)[1] <- "gene_id"
-
-phenotype <- read_tsv("data/phenotype_data.tsv.gz")
-
-hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+if (!use_sample) {
+  
+  methyl_raw <- read_tsv("data/methylation/methylation_data.tsv.gz")
+  colnames(methyl_raw)[1] <- "probe_id" #CpG site ids
+  probe_map <- read_tsv("data/methylation/probe_map")
+  colnames(probe_map)[colnames(probe_map) == "#id"] <- "id"
+  
+  rna_raw <- read_tsv("data/gene_expression/gene_expression_data.tsv.gz")
+  colnames(rna_raw)[1] <- "gene_id"
+  
+  phenotype <- read_tsv("data/phenotype_data.tsv.gz")
+  
+  hg38_txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+  
+}
 
 ```
 
 ```{r}
 ##################
-# FILTER SAMPLES #    (SKIP IF USING SMALL INPUT FILE)
+# FILTER SAMPLES #
 ##################    
+if (!use_sample) {
+  
+  # filter for primary tumor samples to reduce noise
+  samples <- filter(phenotype, sample_type.samples == "Primary Tumor")
+  samples <- pull(samples, sample)
+  
+  # samples in all three datasets:
+  # methyl_matrix, rna_std, phenotype
+  matched_samples <- Reduce(
+    intersect, list(colnames(methyl_raw)[-1], colnames(rna_raw)[-1], samples))
+  
+  # modify methyl and rna matrices to be matched subset
+  methyl_matrix <- select(methyl_raw, probe_id, all_of(matched_samples))
+  rna_matrix <- select(rna_raw, gene_id, all_of(matched_samples))
+  
+}
 
-# filter for primary tumor samples to reduce noise
-samples <- filter(phenotype, sample_type.samples == "Primary Tumor")
-samples <- pull(samples, sample)
-
-# samples in all three datasets:
-# methyl_matrix, rna_std, phenotype
-matched_samples <- Reduce(
-  intersect, list(colnames(methyl_raw)[-1], colnames(rna_raw)[-1], samples))
-
-# modify methyl and rna matrices to be matched subset
-methyl_matrix <- select(methyl_raw, probe_id, all_of(matched_samples))
-rna_matrix <- select(rna_raw, gene_id, all_of(matched_samples))
 ```
 
 # Standardize RNA-seq IDs
 
 ```{r}
 ###################
-# STANDARDIZE IDS #     (SKIP IF USING SMALL INPUT FILE)
+# STANDARDIZE IDS #
 ###################
 
-# remove version number from ids
-rna_with_ver <- mutate(rna_matrix, gene_id_no_ver = sub("\\..*$", "", gene_id ))
+if (!use_sample) {
+  
+  # remove version number from ids
+  rna_with_ver <- mutate(rna_matrix, gene_id_no_ver = sub("\\..*$", "", gene_id ))
+  
+  # change ids from ENSEMBL to ENTREZID
+  ensg_keys <- unique(rna_with_ver$gene_id_no_ver)
+  ensg_to_entrez <- AnnotationDbi::mapIds(
+    org.Hs.eg.db,
+    keys = ensg_keys,
+    keytype = "ENSEMBL",
+    column = "ENTREZID",
+    multiVals = "first"
+  )
+  
+  # final matched rna dataset
+  rna_std <- mutate(
+    rna_with_ver, gene_id_entrez = as.character(ensg_to_entrez[gene_id_no_ver]))
+  rna_std <- filter(rna_std, !is.na(gene_id_entrez))
+  rna_std <- group_by(rna_std, gene_id_entrez)
+  rna_std <- summarize(
+    rna_std, across(all_of(matched_samples), mean, na.rm = TRUE))
+  
+}
 
-# change ids from ENSEMBL to ENTREZID
-ensg_keys <- unique(rna_with_ver$gene_id_no_ver)
-ensg_to_entrez <- AnnotationDbi::mapIds(
-  org.Hs.eg.db,
-  keys = ensg_keys,
-  keytype = "ENSEMBL",
-  column = "ENTREZID",
-  multiVals = "first"
-)
-
-# final matched rna dataset
-rna_std <- mutate(
-  rna_with_ver, gene_id_entrez = as.character(ensg_to_entrez[gene_id_no_ver]))
-rna_std <- filter(rna_std, !is.na(gene_id_entrez))
-rna_std <- group_by(rna_std, gene_id_entrez)
-rna_std <- summarize(
-  rna_std, across(all_of(matched_samples), mean, na.rm = TRUE))
 ```
 
 
@@ -106,25 +121,29 @@ rna_std <- summarize(
 
 ```{r, warning = FALSE}
 ################################################
-# FILTER METHYLATION DATA FOR PROMOTER REGIONS # (SKIP IF USING SMALL INPUT FILE)
+# FILTER METHYLATION DATA FOR PROMOTER REGIONS #
 ################################################
 
-# make GRanges object, assign probe ID to chromosome ranges
-methyl_gr <- GRanges(
-  seqnames = probe_map$chrom,
-  ranges = IRanges(start = probe_map$chromStart, end = probe_map$chromEnd),
-  probe_id = probe_map$id)
+if (!use_sample) {
+  
+  # make GRanges object, assign probe ID to chromosome ranges
+  methyl_gr <- GRanges(
+    seqnames = probe_map$chrom,
+    ranges = IRanges(start = probe_map$chromStart, end = probe_map$chromEnd),
+    probe_id = probe_map$id)
+  
+  # extract promoter regions
+  promoter_regions <- genes(hg38_txdb, single.strand.genes.only=FALSE)
+  promoter_regions <- promoters(promoter_regions, upstream=2000, downstream=400)
+  
+  # find overlaps of CpGs in methylation data and gene promoter regions
+  probe_overlaps <- overlapsAny(methyl_gr, promoter_regions, ignore.strand = TRUE)
+  probes_in_promoter <- probe_map$id[probe_overlaps]
+  
+  # filter out CpGs not in promoter region from methyl_matrix
+  methyl_filtered <- filter(methyl_matrix, probe_id %in% probes_in_promoter)
 
-# extract promoter regions
-promoter_regions <- genes(hg38_txdb, single.strand.genes.only=FALSE)
-promoter_regions <- promoters(promoter_regions, upstream=2000, downstream=400)
-
-# find overlaps of CpGs in methylation data and gene promoter regions
-probe_overlaps <- overlapsAny(methyl_gr, promoter_regions, ignore.strand = TRUE)
-probes_in_promoter <- probe_map$id[probe_overlaps]
-
-# filter out CpGs not in promoter region from methyl_matrix
-methyl_filtered <- filter(methyl_matrix, probe_id %in% probes_in_promoter)
+}
 
 ```
 
@@ -132,66 +151,73 @@ methyl_filtered <- filter(methyl_matrix, probe_id %in% probes_in_promoter)
 
 ```{r}
 ########################################
-# FILTER RNA DATA FOR PROMOTER REGIONS # (SKIP IF USING SMALL INPUT FILE)
+# FILTER RNA DATA FOR PROMOTER REGIONS #
 ########################################
 
-hg38_genes <- genes(hg38_txdb)
-genes_in_rna_std <- hg38_genes$gene_id %in% unique(na.omit(rna_std$gene_id_entrez))
-rna_seq_ranges <- hg38_genes[genes_in_rna_std]
-rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
-
+if (!use_sample) {
+  
+  hg38_genes <- genes(hg38_txdb)
+  genes_in_rna_std <- hg38_genes$gene_id %in% unique(na.omit(rna_std$gene_id_entrez))
+  rna_seq_ranges <- hg38_genes[genes_in_rna_std]
+  rna_seq_promoters <- promoters(rna_seq_ranges, upstream=2000, downstream=400)
+  
+}
 
 ```
 
 ```{r}
 ##################################
-# MERGE METHYLATION AND RNA DATA # (SKIP IF USING SMALL INPUT FILE)
+# MERGE METHYLATION AND RNA DATA #
 ##################################
 
-# filter out methylation data not in promoter regions
-methyl_gr_filtered <- methyl_gr[mcols(methyl_gr)$probe_id %in% probes_in_promoter]
-methyl_rna_overlaps <- findOverlaps(
-  rna_seq_promoters, methyl_gr_filtered, ignore.strand = TRUE)
-
-# dataframe of matched CpG and gene ids
-probe_gene_map <- data.frame(
-  probe_id = mcols(
-    methyl_gr_filtered)$probe_id[subjectHits(methyl_rna_overlaps)],
-  gene_id_entrez = mcols(
-    rna_seq_promoters)$gene_id[queryHits(methyl_rna_overlaps)],
-  chrom = as.character(
-    seqnames(methyl_gr_filtered))[subjectHits(methyl_rna_overlaps)],
-  start = start(methyl_gr_filtered)[subjectHits(methyl_rna_overlaps)])
-
-#pivot data long: one row per CpG-sample combo for HMM
-methyl_long_format <- pivot_longer(
-  methyl_filtered,
-  cols = -probe_id,
-  names_to = "sample_id",
-  values_to = "beta")
-methyl_long_format <- inner_join(
-  methyl_long_format, probe_gene_map, by = "probe_id")
-
-#pivot data long: one row per gene-sample combo for HMM
-rna_long_format <- pivot_longer(
-  rna_std,
-  cols = -gene_id_entrez,
-  names_to = "sample_id",
-  values_to = "expression")
-
-# merge two long formatted methyl and rna datasets 
-merged_df <- inner_join(
-  methyl_long_format, rna_long_format, by = c("sample_id", "gene_id_entrez"))
-
-head(merged_df)
-
+if (!use_sample) {
+  
+  # filter out methylation data not in promoter regions
+  methyl_gr_filtered <- methyl_gr[mcols(methyl_gr)$probe_id %in% probes_in_promoter]
+  methyl_rna_overlaps <- findOverlaps(
+    rna_seq_promoters, methyl_gr_filtered, ignore.strand = TRUE)
+  
+  # dataframe of matched CpG and gene ids
+  probe_gene_map <- data.frame(
+    probe_id = mcols(
+      methyl_gr_filtered)$probe_id[subjectHits(methyl_rna_overlaps)],
+    gene_id_entrez = mcols(
+      rna_seq_promoters)$gene_id[queryHits(methyl_rna_overlaps)],
+    chrom = as.character(
+      seqnames(methyl_gr_filtered))[subjectHits(methyl_rna_overlaps)],
+    start = start(methyl_gr_filtered)[subjectHits(methyl_rna_overlaps)])
+  
+  #pivot data long: one row per CpG-sample combo for HMM
+  methyl_long_format <- pivot_longer(
+    methyl_filtered,
+    cols = -probe_id,
+    names_to = "sample_id",
+    values_to = "beta")
+  methyl_long_format <- inner_join(
+    methyl_long_format, probe_gene_map, by = "probe_id")
+  
+  #pivot data long: one row per gene-sample combo for HMM
+  rna_long_format <- pivot_longer(
+    rna_std,
+    cols = -gene_id_entrez,
+    names_to = "sample_id",
+    values_to = "expression")
+  
+  # merge two long formatted methyl and rna datasets 
+  merged_df <- inner_join(
+    methyl_long_format, rna_long_format, by = c("sample_id", "gene_id_entrez"))
+  
+  head(merged_df)
+  
+}
+  
 ```
 
 # Analyses
 
-```{r}
+```{r, eval = FALSE}
 ###########################
-# Create small input file #   (SKIP IF USING SMALL INPUT FILE)
+# CREATE SMALL SAMPLE FILE #
 ###########################
 
 # later filtering of genes with fewer CpG sites for HMM may produce worse results
@@ -199,17 +225,19 @@ sample_genes <- head(unique(merged_df$gene_id_entrez), 20)
 sample_input_data <- filter(merged_df, gene_id_entrez %in% sample_genes)
 write_csv(sample_input_data, "sample_input.csv")
 
-
-
 ```
 
-```{r, eval=FALSE}
-#############################
-# IF USING SMALL INPUT FILE #
-#############################
+```{r}
+#########################
+# LOAD SMALL SAMPLE FILE #
+#########################
 
-# first 20 genes in order of larger dataset
-merged_df <- read_csv("sample_input.csv")
+if (use_sample) {
+  
+  # first 20 genes in order of larger dataset
+  merged_df <- read_csv("sample_input.csv")
+
+}
 
 ```
 
@@ -365,8 +393,9 @@ best_gene_hmm <- slice(hmm_gene_rankings_desc, 1)
 best_gene_hmm_id <- pull(best_gene_hmm, gene_id_entrez)
 best_gene_hmm_r_squared <- pull(best_gene_hmm, r_squared)
 
-num_genes_fit <- nrow(hmm_result)
-worst_gene_hmm <- slice(hmm_gene_rankings_desc, num_genes_fit)
+worst_gene_hmm <- filter(hmm_gene_rankings_desc, !is.na(r_squared))
+num_genes_fit <- nrow(worst_gene_hmm)
+worst_gene_hmm <- slice(worst_gene_hmm, num_genes_fit)
 worst_gene_hmm_id <- pull(worst_gene_hmm, gene_id_entrez)
 worst_gene_hmm_r_squared <- pull(worst_gene_hmm, r_squared)
 
