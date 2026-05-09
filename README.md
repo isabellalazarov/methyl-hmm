@@ -1,17 +1,28 @@
 # Predicting Gene Expression with Methylation-GEX Relationships Across Promoter Regions with an HMM
 
+some description here?? idk
+
 ## Data 
 
 Data was obtained from TCGA-COAD. The raw and preprocessed data files were not included in this repository due to their size, but they can be obtained through the following steps:
 
 1. **Download raw data**
    - Files will be downloaded from the following respositories: [methylation](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.methylation450.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443), [gene expression](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.star_fpkm-uq.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443), and [phenotype](https://xenabrowser.net/datapages/?dataset=TCGA-COAD.clinical.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443).
-   - From the methylation repository, download the [data](https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-COAD.methylation450.tsv.gz) file (next to "download" on the website) and call it `methylation_data.tsv.gz`. Then, download the [probe mapping](https://gdc-hub.s3.us-east-1.amazonaws.com/download/HM450.hg38.manifest.gencode.v36.probeMap) (next to "ID/Gene Mapping" on the website) and call it `probe_map`.
-   - From the gene expression repository,
-   - From the phenotype repository
-2. **Run preprocessing steps**
+   - From the methylation repository, download the methylation assay data file [TCGA-COAD.methylation450.tsv.gz](https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-COAD.methylation450.tsv.gz) (next to "download" on the website) and rename it `methylation_data.tsv.gz`. Then, download the probe mapping [HM450.hg38.manifest.gencode.v36.probeMap](https://gdc-hub.s3.us-east-1.amazonaws.com/download/HM450.hg38.manifest.gencode.v36.probeMap) (next to "ID/Gene Mapping" on the website) and rename it `probe_map`.
+   - From the gene expression repository, download the RNA-seq data file [TCGA-COAD.star_fpkm-uq.tsv.gz](https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-COAD.star_fpkm-uq.tsv.gz) (next to "download" on the website) and call it `gene_expression_data.tsv.gz`.
+   - From the phenotype repository, download the clinical data file [TCGA-COAD.clinical.tsv.gz](https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-COAD.clinical.tsv.gz) (next to "download" on the website) and call it `phenotype_data.tsv.gz`.
+2. **Organize directory structure**
+   - Create a `data/` folder with two subfolders, `methylation/` and `gene_expression/`. 
+   - Inside `methylation/`, place `methylation_data.tsv.gz` and `probe_map`.
+   - Inside `gene_expression/`, place `gene_expression_data.tsv.gz`.
+   - In `data/` but outside the two subfolders, place `phenotype_data.tsv.gz`.
+   - The final directory structure should match the following:
+   ```
+
+   ```
+3. **Run preprocessing steps**
    - test
-3. 
+4. 
 
 ## Project Structure
 
@@ -35,10 +46,7 @@ methyl-hmm
 ├── fit_lasso_per_gene.R
 ├── hmm_analyses.Rmd
 ├── methyl_hmm.Rproj
-├── old
-│   ├── fit_hmm.R
-│   ├── old_hmm_analysis.R
-│   └── per_sample_table.R
+
 └── sample_input.csv
 ```
 
@@ -52,17 +60,11 @@ methyl-hmm
 
 `sample_input.csv`: Small sample input file
 
-`download_encode.py`: do we want to talk about this?
+*Old files:*
 
-`exports/`: Folder containing the processed data files from `download_encode.py`. should we talk about each individual file? (remove if we don't want to include the old results)
+`download_encode.py`: Initial Python script used to 
 
-`old/`: (can remove this and all of the below files)
-
-`old/fit_hmm.R`:
-
-`old/old_hmm_analysis.R`:
-
-`old/per_sample_table.R`:
+`exports/`: Folder containing the processed data files from `download_encode.py`. should we talk about each individual file?
 
 ## Reproducing Results
 
@@ -77,6 +79,11 @@ R version 4.5.2 was used with the following packages installed, as well as their
 - `here` version 1.0.2
 
 To run 
+
+
+
+To produce the old results, Python 
+Simply run `download_encode.py` to produce the output files in the `exports/` folder.
 
 
 
