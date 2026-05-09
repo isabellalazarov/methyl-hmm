@@ -17,12 +17,11 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
    - Inside `gene_expression/`, place `gene_expression_data.tsv.gz`.
    - In `data/` but outside the two subfolders, place `phenotype_data.tsv.gz`.
    - The final directory structure should match the following:
-   ```
-
-   ```
+        ```
+        please paste tree results here thanks!!
+        ```
 3. **Run preprocessing steps**
-   - test
-4. 
+    - Run `hmm_analyses.Rmd`. The first half of this file preprocesses the raw data and creates the data frame `merged_df` in the R environment, which is used for all downstream analyses.
 
 ## Project Structure
 
@@ -30,11 +29,11 @@ Data was obtained from TCGA-COAD. The raw and preprocessed data files were not i
 methyl-hmm
 ├── README.md
 ├── data  (not in repository)
+│   ├── gene_expression
+│   │   └── gene_expression_data.tsv.gz
 │   ├── methylation
 │   │   ├── methylation_data.tsv.gz
 │   │   └── probe_map
-│   ├── gene_expression
-│   │   └── gene_expression_data.tsv.gz
 │   └── phenotype_data.tsv.gz
 ├── download_encode.py
 ├── exports
@@ -67,6 +66,9 @@ methyl-hmm
 `exports/`: Folder containing the processed data files from `download_encode.py`.
 
 
+`exports/`: Folder containing the processed data files from `download_encode.py`. should we talk about each individual file?
+
+## Sample Execution
 
 ## Reproducing Results
 
@@ -80,13 +82,15 @@ R version 4.5.2 was used with the following packages installed, as well as their
 - `depmixS4` version 1.5-1
 - `here` version 1.0.2
 
-To run the program on the small sample input file, set use_sample = TRUE in the first chunk of the hmm_analyses.Rmd file. This will skip any chunks where the original large datasets are preprocessed and saved in merge_df reference.
+To run the pipeline on the large input files, follow the data downloading steps outlined above, then simply run `hmm_analyses.Rmd` to produce the full results.
 
-To run the progroam on the large original input file, set use_sample = FALSE in the first chunk of the hmm_analyses.Rmd file. This will skip the chunk where merged_df is assigned a 20-gene subset of the original large dataset.
+To produce the old results, Python version 3.11.9 was used with the following libraries imported:
+- `requests` version 2.32.5
+- `os` from Python Standard Library
+- `csv` from Python Standard Library
+- `gzip` from Python Standard Library
 
-
-To produce the old results, Python 
-Simply run `download_encode.py` to produce the output files in the `exports/` folder.
+Simply run `download_encode.py` to produce the output files in the `exports/` folder, then run `old_pipeline.R`, which will produce the LASSO and correlation analyses. The HMM was not run on the old data due to the poor quality of results.
 
 
 
@@ -94,5 +98,5 @@ Simply run `download_encode.py` to produce the output files in the `exports/` fo
 requirements (DELETE):
 • All source code/scripts. This includes any code used to generate display items used in your report, including supplementary materials.
 • Sample, small input and output files.
-• If your project generally operates on “large” data files that are available publicly, list the names of these files and where to get them.
+• ~~If your project generally operates on “large” data files that are available publicly, list the names of these files and where to get them.~~
 • A ReadMe file that tells exactly what is each file, how to compile (if relevant) and test-run the project on sample inputs to get the sample output, how to really run the project on large files, if relevant, what are the parameters, ~~what are the system requirements (e.g. are you using a particular version of matlab/Python/R/Ruby/Java/C++? Do you run on a particularly powerful machine/cloud instance? Which standard or add-on libraries would you need to have been previously installed?)~~
